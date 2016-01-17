@@ -1,0 +1,21 @@
+!
+! Grammar for simple arithmetic expressions.
+!
+
+program* = { expr , dot } , eof ;
+expr = term , { ( plus | minus ) , term } ;
+term = factor , { ( mul | div ) , factor } ;
+factor = id | num | lparen , expr , rparen ;
+
+id = #29 ;
+num = #30 ;
+plus = #1 ;
+minus = #2 ;
+div = #3 ;
+mul = #4 ;
+lparen = #26 ;
+rparen = #27 ;
+dot = #28 ;
+eof = #25 ;
+
+.

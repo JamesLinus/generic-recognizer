@@ -1,0 +1,73 @@
+!
+! Grammar for a simplified version of the PL/0 programming language.
+!
+
+program* = { block } , dot , eof ;
+
+block =
+    data_declaration |
+    code_declaration ;
+
+data_declaration =
+    [ const , ident , eq , number , { comma , ident , eq , number } , semi ] |
+    [ var , ident , { comma , ident } , semi ] ;
+
+code_declaration =
+    { procedure , ident , semi , data_declaration } , statement ;
+
+statement =
+    ident , assign , expression |
+    call , ident |
+    begin , statement , { semi , statement } , end |
+    if , condition , then , statement |
+    while , condition , do , statement ;
+
+condition =
+    odd , expression |
+    expression , ( eq | neq | lt | let | gt | get ) , expression ;
+
+expression = [ plus | minus ] , term , { ( plus | minus ) , term } ;
+
+term = factor , { ( mul | div ) , factor } ;
+
+factor =
+    ident |
+    number |
+    lparen , expression , rparen ;
+
+plus = #1 ;
+minus = #2 ;
+div = #3 ;
+mul = #4 ;
+gt = #5 ;
+get = #6 ;
+lt = #7 ;
+let = #8 ;
+eq = #9 ;
+neq = #10 ;
+odd = #11 ;
+
+begin = #12 ;
+end = #13 ;
+while = #14 ;
+do = #15 ;
+if = #16 ;
+then = #17 ;
+call = #18 ;
+assign = #19 ;
+
+procedure = #20 ;
+var = #21 ;
+const = #22 ;
+
+semi = #23 ;
+comma = #24 ;
+eof = #25 ;
+lparen = #26 ;
+rparen = #27 ;
+dot = #28 ;
+
+ident = #29 ;
+number = #30 ;
+
+.

@@ -1,0 +1,13 @@
+!
+! Grammar for the language of balanced parenthesis.
+!
+
+A* = { B , dot } , eof ;
+B = lparen , [ B ] , rparen ;
+
+eof = #25;
+lparen = #26;
+rparen = #27;
+dot = #28;
+
+.
