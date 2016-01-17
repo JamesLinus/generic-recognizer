@@ -52,7 +52,7 @@ The following command line options are available:
 
 ## Examples
 
-There are several example grammars and correspongding valid input strings in the `examples` folder.
+There are several example grammars and corresponding valid input strings in the `examples` folder.
 
 ```
 $ ls -1 examples
