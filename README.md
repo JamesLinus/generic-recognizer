@@ -21,7 +21,7 @@ Operator | Meaning
 :---:|:---
 = | definition
 , | concatenation
-\| | aternation
+\| | alternation
 [...] | option
 {...} | repetition
 (...) | grouping
