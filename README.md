@@ -141,6 +141,6 @@ $ ./genrec examples/grammar1.ebnf examples/string1 -v
 ## Limitations
 
 * It only recognizes LL(1) grammars.
-* First sets are represented as `uint64_t` bit vectors. Because of this, terminals (tokens) must have values in the interval [0, 64].
+* First sets are represented as `uint64_t` bit vectors. Because of this, terminals (tokens) must have values in the interval [0, 63].
 * As mentioned earlier, the `-c` options only works with grammars that have less than 65 rules (for similar reasons as the previous limitation).
 * Being only a recognizer, its usefulness is limited (unlike a parser, it is not going to return any AST or similar representation). Nevertheless, it may be of interest to those learning recursive-descent parsing.
