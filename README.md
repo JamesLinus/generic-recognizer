@@ -32,7 +32,7 @@ There must be always one (and only one) start symbol, marked with a `*` in the l
 
 Comment start with a `!` and extend until the end of the line.
 
-The grammar **must not contain left recursion**. If the grammar does contain left recursion, the recognizer will likely enter into an infinite recursive loop and crash (as it is known, left factoring might be used to remove left recursion).
+The grammar **must not contain left recursion**. If the grammar does contain left recursion, the recognizer will likely enter into an infinite recursive loop and crash (see some [possible solutions](https://en.wikipedia.org/wiki/LL_parser#Conflicts) to this).
 
 The user is responsible of providing a lexer with the following interface:
 
