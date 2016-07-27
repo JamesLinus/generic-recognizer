@@ -1,0 +1,25 @@
+!
+! The following grammar is not LL(1).
+! Should give a First/First conflict.
+! First(assign_stmt) = First(call_stmt) = { ID }.
+! The stmt rule is represented internally with the following AST
+!
+!         ALTER
+!        /     \
+!       ALTER   ";"
+!      /     \
+!     /       \
+! assign_stmt  call_stmt
+!
+! The ALTER operator uses the First sets of its children to decide the
+! side to which recurse. call_stmt, being in the right-hand side, will
+! never be used to match input that starts with ID.
+! A string like "abc := 1234" will be accepted, but one like "abc()" (also
+! belonging to the language) will be rejected.
+!
+
+stmt* = ( assign_stmt | call_stmt | ";" ) ;
+assign_stmt = #ID ":=" #NUM ;
+call_stmt = #ID "(" ")" ;
+
+.
