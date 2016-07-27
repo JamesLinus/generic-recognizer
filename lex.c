@@ -1,42 +1,151 @@
-/*
-    Example lexer that implements the interface required by the parser.
-    It is used by all the grammars in the 'examples/' directory.
-*/
 #include "lex.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
-#include "tokens.h"
+#include "util.h"
 
-int lex_lineno = 1;
-static char *lex_buf, *lex_curr;
+typedef struct Keyword Keyword;
 
-#define NKEYWORDS 11
-struct {
-    int tok;
-    char *str;
-} keywords[] = { /* PL/0 keywords */
-    { LEX_ODD, "odd" },
-    { LEX_BEGIN, "begin" },
-    { LEX_END, "end" },
-    { LEX_WHILE, "while" },
-    { LEX_DO, "do" },
-    { LEX_IF, "if" },
-    { LEX_THEN, "then" },
-    { LEX_CALL, "call" },
-    { LEX_PROCEDURE, "procedure" },
-    { LEX_VAR, "var" },
-    { LEX_CONST, "const" },
+static int lineno = 1;
+static char *buf, *curr;
+
+enum {
+#define X(a, b) TOK_ ## a,
+#include "tokens.def"
+#undef X
+    START_KW,
 };
 
-int lex(void)
+static struct {
+    int num;
+    char *str;
+    char *name;
+} token_table[] = {
+#define X(a, b) { TOK_ ## a, b, # a },
+#include "tokens.def"
+#undef X
+    { -1, NULL, NULL },
+};
+
+static struct Keyword {
+    int num;
+    char *str;
+    Keyword *next;
+} *keywords;
+
+int lex_keyword(const char *str)
+{
+    Keyword *p, *t;
+    static int keyword_counter;
+
+    for (p=NULL, t=keywords; t != NULL; p=t, t=t->next)
+        if (strcmp(t->str, str) == 0)
+            return t->num;
+    t = malloc(sizeof(*t));
+    t->num = START_KW+keyword_counter++;
+    t->str = strdup(str);
+    t->next = NULL;
+    if (p != NULL)
+        p->next = t;
+    else
+        keywords = t;
+    return t->num;
+}
+
+const char *lex_keyword_iterate(int begin)
+{
+    char *str;
+    static Keyword *curr;
+
+    if (begin)
+        curr = keywords;
+    str = NULL;
+    if (curr != NULL) {
+        str = curr->str;
+        curr = curr->next;
+    }
+    return str;
+}
+
+static int is_id(const char *s)
+{
+    if (!isalpha(*s++))
+        return 0;
+    while (*s!='\0' && isalnum(*s))
+        ++s;
+    return *s == '\0';
+}
+
+int lex_lineno(void)
+{
+    return lineno;
+}
+
+int lex_str2num(const char *str)
+{
+    int i;
+
+    if (is_id(str))
+        return lex_keyword(str);
+    for (i = 0; token_table[i].num >= 0; i++) {
+        if (token_table[i].str == NULL)
+            continue;
+        if (strcmp(token_table[i].str, str) == 0)
+            return token_table[i].num;
+    }
+    return -1;
+}
+
+int lex_name2num(const char *name)
+{
+    int i;
+
+    for (i = 0; token_table[i].name != NULL; i++)
+        if (strcmp(token_table[i].name, name) == 0)
+            return token_table[i].num;
+    return -1;
+}
+
+const char *lex_num2print(int num)
+{
+    int i;
+
+    if (num >= START_KW) {
+        Keyword *t;
+
+        for (t = keywords; t != NULL; t = t->next)
+            if (t->num == num)
+                return t->str;
+    } else {
+        for (i = 0; token_table[i].num >= 0; i++)
+            if (token_table[i].num == num)
+                return (token_table[i].str!=NULL)?token_table[i].str:token_table[i].name;
+    }
+    assert(0);
+}
+
+const char *lex_num2name(int num)
+{
+    int i;
+
+    if (num >= START_KW)
+        return lex_num2print(num);
+    for (i = 0; token_table[i].num >= 0; i++)
+        if (token_table[i].num == num)
+            return token_table[i].name;
+    assert(0);
+}
+
+/* recognize the tokens defined in "tokens.def" */
+int lex_get_token(void)
 {
     enum {
         START,
         INID,
         INNUM,
+        INSTR,
     };
     int state;
     int save, cindx;
@@ -44,108 +153,117 @@ int lex(void)
     char lexeme[512];
 
     if (eof_reached)
-        return LEX_EOF;
+        return TOK_EOF;
 
     cindx = 0;
     state = START;
     while (1) {
         int c;
 
-        c = *lex_curr++;
+        c = *curr++;
         save = 1;
         switch (state) {
         case START:
-            if (c==' ' || c=='\n') {
+            if (c==' ' || c=='\t' || c=='\n') {
                 save = 0;
                 if (c == '\n')
-                    ++lex_lineno;
+                    ++lineno;
             } else if (isalpha(c) || c=='_') {
                 state = INID;
             }/*else if (c == '!') {
-                while (*lex_curr != '\n')
-                    ++lex_curr;
-                ++lex_curr;
+                while (*curr != '\n')
+                    ++curr;
+                ++curr;
                 save = 0;
             }*/else if (isdigit(c)) {
                 state = INNUM;
+            } else if (c == '"') {
+                state = INSTR;
             } else {
                 switch (c) {
                 case '\0':
                     eof_reached = 1;
-                    return LEX_EOF;
+                    return TOK_EOF;
                 case '(':
-                    return LEX_LPAREN;
+                    return TOK_LPAREN;
                 case ')':
-                    return LEX_RPAREN;
+                    return TOK_RPAREN;
                 case '/':
-                    return LEX_DIV;
+                    return TOK_DIV;
                 case '*':
-                    return LEX_MUL;
+                    return TOK_MUL;
                 case '+':
-                    return LEX_PLUS;
+                    return TOK_PLUS;
                 case '-':
-                    return LEX_MINUS;
+                    return TOK_MINUS;
                 case '>':
-                    if (*lex_curr == '=') {
-                        ++lex_curr;
-                        return LEX_GET;
+                    if (*curr == '=') {
+                        ++curr;
+                        return TOK_GET;
                     }
-                    return LEX_GT;
+                    return TOK_GT;
                 case '<':
-                    if (*lex_curr == '=') {
-                        ++lex_curr;
-                        return LEX_LET;
+                    if (*curr == '=') {
+                        ++curr;
+                        return TOK_LET;
                     }
-                    return LEX_LT;
+                    return TOK_LT;
                 case '#':
-                    return LEX_NEQ;
+                    return TOK_NEQ;
                 case '=':
-                    return LEX_EQ;
+                    return TOK_EQ;
                 case ',':
-                    return LEX_COMMA;
+                    return TOK_COMMA;
                 case ';':
-                    return LEX_SEMI;
+                    return TOK_SEMI;
                 case '.':
-                    return LEX_DOT;
+                    return TOK_DOT;
                 case '|':
-                    return LEX_VBAR;
+                    return TOK_VBAR;
                 case '{':
-                    return LEX_LBRACE;
+                    return TOK_LBRACE;
                 case '}':
-                    return LEX_RBRACE;
+                    return TOK_RBRACE;
                 case '[':
-                    return LEX_LBRACKET;
+                    return TOK_LBRACKET;
                 case ']':
-                    return LEX_RBRACKET;
+                    return TOK_RBRACKET;
                 case ':':
-                    if (*lex_curr == '=') {
-                        ++lex_curr;
-                        return LEX_ASSIGN;
+                    if (*curr == '=') {
+                        ++curr;
+                        return TOK_ASSIGN;
+                    } else {
+                        return TOK_COLON;
                     }
                 default:
-                    return LEX_UNKNOWN;
+                    return TOK_UNKNOWN;
                 }
             }
             break; /* START */
 
         case INID:
             if (!isalnum(c) && c!='_') {
-                int i;
+                Keyword *t;
 
-                --lex_curr;
+                --curr;
                 lexeme[cindx] = '\0';
-                for (i = 0; i < NKEYWORDS; i++)
-                    if (strcmp(lexeme, keywords[i].str) == 0)
-                        return keywords[i].tok;
-                return LEX_IDENT;
+                for (t = keywords; t != NULL; t = t->next)
+                    if (strcmp(lexeme, t->str) == 0)
+                        return t->num;
+                return TOK_ID;
             }
             break;
 
         case INNUM:
             if (!isdigit(c)) {
-                --lex_curr;
-                return LEX_NUMBER;
+                --curr;
+                return TOK_NUM;
             }
+            break;
+
+        case INSTR:
+            if (c == '"')
+                return TOK_STR;
             break;
 
         default:
@@ -160,24 +278,14 @@ int lex(void)
 
 int lex_init(char *file_path)
 {
-    FILE *fp;
-    unsigned len;
-
-    if ((fp=fopen(file_path, "rb")) == NULL)
+    if ((buf=read_file(file_path)) == NULL)
         return -1;
-    fseek(fp, 0, SEEK_END);
-    len = ftell(fp);
-    rewind(fp);
-    lex_buf = malloc(len+1);
-    len = fread(lex_buf, 1, len, fp);
-    lex_buf[len] = '\0';
-    fclose(fp);
-    lex_curr = lex_buf;
+    curr = buf;
     return 0;
 }
 
 int lex_finish(void)
 {
-    free(lex_buf);
+    free(buf);
     return 0;
 }

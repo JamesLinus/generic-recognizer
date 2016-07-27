@@ -2,17 +2,8 @@
 ! Grammar for small LISP-like language.
 !
 
-program* = { lexp , dot } , eof ;
-lexp = num | lparen , ( plus | minus | mul ) , lexp_seq , rparen ;
-lexp_seq = lexp , { lexp } ;
-
-eof = #25;
-dot = #28;
-num = #30;
-lparen = #26;
-rparen = #27;
-plus = #1;
-minus = #2;
-mul = #4;
+program* = { lexp "." } ;
+lexp = #NUM | "(" ( "+" | "-" | "*" ) lexp_seq ")" ;
+lexp_seq = lexp { lexp } ;
 
 .

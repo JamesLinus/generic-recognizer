@@ -3,14 +3,17 @@ CFLAGS=-c -g -Wall -Wconversion -Wno-switch -Wno-parentheses -Wno-sign-conversio
 
 all: genrec
 
-genrec: genrec.o lex.o
-	$(CC) -o genrec genrec.o lex.o
+genrec: genrec.o lex.o util.o
+	$(CC) -o genrec genrec.o lex.o util.o
 
-genpar.o: genrec.c lex.h
+genrec.o: genrec.c lex.h
 	$(CC) $(CFLAGS) genrec.c
 
-lex.o: lex.c lex.h tokens.h
+lex.o: lex.c lex.h tokens.def
 	$(CC) $(CFLAGS) lex.c
+
+util.o: util.c util.h
+	$(CC) $(CFLAGS) util.c
 
 clean:
 	rm -f *.o genrec

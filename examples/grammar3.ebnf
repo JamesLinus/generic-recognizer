@@ -6,27 +6,10 @@
 ! accept ! comments).
 !
 
-grammar* = rule , { rule } , dot ;
-rule = id , [ star ] , eq , ( nonterm | term ) , semi ;
-nonterm = option , { vbar , option } ;
-option = concat , { comma , concat } ;
-concat = id | lparen , nonterm , rparen | lbrace , nonterm , rbrace | lbracket , nonterm , rbracket ;
-term = hash , num ;
-
-eq = #9;
-id = #29;
-num = #30;
-dot = #28;
-semi = #23;
-comma = #24;
-star = #4;
-lparen = #26;
-rparen = #27;
-hash = #10;
-vbar = #31;
-lbrace = #32;
-rbrace = #33;
-lbracket = #34;
-rbracket = #35;
+grammar* = rule { rule } "." ;
+rule = #ID [ "*" ] "=" expr ";" ;
+expr = term { "|" term } ;
+term = factor { factor } ;
+factor = #ID | "#" #ID | #STR | "(" expr ")" | "{" expr "}" | "[" expr "]" ;
 
 .
