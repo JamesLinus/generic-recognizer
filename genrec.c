@@ -570,7 +570,7 @@ static void conflicts(void)
 {
     int i;
 
-    check_for_left_rec(1<<start_symbol, rules[start_symbol]);
+    check_for_left_rec(1ULL<<start_symbol, rules[start_symbol]);
     compute_follow_sets();
     for (i = 0; i < rule_counter; i++)
         conflict(rules[i], i);
