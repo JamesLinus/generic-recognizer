@@ -1,9 +1,3 @@
-## Grammar File
-
-
-
-
-
 ## Description
 
 Program that, given as input a grammar and a string, will tell if the string belongs to the language defined by the grammar. If the string does belong to the language, it will exit silently. Otherwise, it will point out in which line of the input string the error resides.
