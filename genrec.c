@@ -908,7 +908,8 @@ int main(int argc, char *argv[])
             exit(EXIT_FAILURE);
         }
     }
-    if (grammar_file==NULL || (!print_first && !print_follow && !validate && !generate))
+    if (grammar_file==NULL
+    || (string_file==NULL && !print_first && !print_follow && !validate && !generate))
         usage(TRUE);
 
     if ((buf=read_file(grammar_file)) == NULL) {
