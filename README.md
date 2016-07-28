@@ -51,9 +51,9 @@ The program will exit silently if the string does not contain any syntax error.
 
 ### Generating a recognizer
 
-The `-g` option can be used to generate a recognizer program in the C programming
-language. The recognizer is emitted to stdout by default (this can be changed with
-the `-o` option).
+The `-g` option can be used to generate a recursive descent recognizer program
+in the C programming language. The recognizer is emitted to stdout by default
+(this can be changed with the `-o` option).
 
 For example, the following generates a recognizer for the above JSON grammar:
 
