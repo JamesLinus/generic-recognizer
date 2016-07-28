@@ -1,146 +1,84 @@
-## Description
+## Input Grammar
 
-Program that, given as input a grammar and a string, will tell if the string belongs to the language defined by the grammar. If the string does belong to the language, it will exit silently. Otherwise, it will point out in which line of the input string the error resides.
+The program reads grammars in [EBNF](https://en.wikipedia.org/wiki/Extended_Backus–Naur_Form).
+Here is an example of a grammar describing the [JSON](https://en.wikipedia.org/wiki/JSON) format:
+
+    ! I'm a comment.
+    object* = "{" [ pairs ] "}" ;
+    pairs = pair { "," pair } ;
+    pair = #STR ":" value ;
+    value = #STR | #NUM | "true" | "false" | "null" | object | array ;
+    array = "[" [ elements ] "]" ;
+    elements = value { "," value } ;
+    .
+
+From this example we can see several things:
+
+ - `=` is used to define nonterminals.
+ - Each production rule is terminated by a `;`.
+ - The whole grammar is terminated by a single `.`.
+ - The start symbol (there must be only one) is denoted with a `*`.
+ - `|` is used to denote alternatives.
+ - `{}` are used to enclose parts that can repeat zero or more times.
+ - `[]` are used to enclose parts that are optional.
+ - `!` starts a comment that extends until the end of the line.
+
+`()` can be used for grouping. For example:
+
+    expr = term { ( "+" | "-" ) term } ;
+
+Terminals symbols (tokens) can be specified in two ways:
+ - With a `#` followed by the name of a token (see `tokens.def`).
+ - Enclosed in quotes. If what is between the quotes is an identifier, then
+   it is treated as a keyword token. Otherwise, what is between the quotes
+   must be something that can be lexed by `lex_get_token()` (see `lex.c`).
+
+There is no need for an explicit symbol to denote the empty string (epsilon, ε).
 
 ## Usage
 
-    genrec [ -f -c -v -h ] <grammar_file> <string_file>
+You can use the input grammar to recognize an input string right away or to
+generate a recognizer program.
 
-The grammar must be provided in a form similar to [EBNF](https://en.wikipedia.org/wiki/Extended_Backus–Naur_Form) (they differ on how terminal symbols are specified). The syntax of an input grammar file is as follows:
+### Recognizing an input string
 
-    grammar = rule { rule } "."
-    rule = ID [ "*" ] "=" ( nonterm | term ) ";"
-    nonterm = option { "|" option }
-    option =  concat { "," concat }
-    concat = ID | "(" nonterm ")" | "{" nonterm "}" | "[" nonterm "]"
-    term = "#" NUM
+The input string is specified as a second argument:
 
-The operators and their meanings are:
+    $ ./genrec examples/grammar1.ebnf examples/string1
 
-Operator | Meaning
-:---:|:---
-= | definition
-, | concatenation
-\| | alternation
-[...] | option
-{...} | repetition
-(...) | grouping
-; | rule termination
-. | grammar termination
+The `-v` option can be used to trace out the leftmost derivation that is performed.
+The program will exit silently if the string does not contain any syntax error.
 
-There must be always one (and only one) start symbol, marked with a `*` in the left-hand side of the rule.
+### Generating a recognizer
 
-Comment start with a `!` and extend until the end of the line.
+The `-g` option can be used to generate a recognizer program in the C programming
+language. The recognizer is emitted to stdout by default (this can be changed with
+the `-o` option).
 
-The grammar **must not contain left recursion**. If the grammar does contain left recursion, the recognizer will likely enter into an infinite recursive loop and crash (see some [possible solutions](https://en.wikipedia.org/wiki/LL_parser#Conflicts) to this).
+For example, the following generates a recognizer for the above JSON grammar:
 
-The user is responsible of providing a lexer with the following interface:
+    $ ./genrec examples/grammar8.ebnf -g -o json_rec.c
+    $ cc json_rec.c lex.c util.c -o json_rec
+    $ ./json_rec examples/string8
 
-```c
-extern int lex_lineno; /* current line number (used for messages) */
-int lex_init(char *file_path); /* open and read the input string (return -1 on failure) */
-int lex(void); /* get the next token from the string */
-int lex_finish(void); /* do any required cleanup (return -1 on failure) */
-```
+The generated program takes as single argument the input string. It also uses
+`lex.c` for the lexing part (and `lex.c` uses functions defined in `util.c`,
+that is why it appears there in the linking).
 
-Tokens are identified by numbers. A token's identifying number will follow the `#` in the `term` rule, and `lex()` must return that same number when the token is encountered. I include an example lexer with the above interface.
+## Debugging the grammar
 
-The following command line options are available:
-* **-f**: will print the FIRST sets of the grammar rules.
-* **-c**: after parsing the grammar, will check if it contains left recursion and report an error if it does. This options works only with grammars that have less than 65 rules.
-* **-v**: activate the verbose mode. In this mode, the recognizer will print everything it does (replace a rule or match a token).
+The program can also be used to get more information about the input grammar and
+to detect possible conflicts.
 
-## Examples
+The `-f` options prints the _First_ sets of all nonterminals, and the `-l` option
+prints the _Follow_ sets.
 
-There are several example grammars and corresponding valid input strings in the `examples` folder.
-
-```
-$ ls -1 examples
-grammar1.ebnf
-grammar2.ebnf
-grammar3.ebnf
-grammar4.ebnf
-string1
-string2
-string3
-string4
-$ cat examples/grammar1
-!
-! Grammar for simple arithmetic expressions.
-!
-
-program* = { expr , dot } , eof ;
-expr = term , { ( plus | minus ) , term } ;
-term = factor , { ( mul | div ) , factor } ;
-factor = id | num | lparen , expr , rparen ;
-
-id = #29 ;
-num = #30 ;
-plus = #1 ;
-minus = #2 ;
-div = #3 ;
-mul = #4 ;
-lparen = #26 ;
-rparen = #27 ;
-dot = #28 ;
-eof = #25 ;
-
-.
-$ cat examples/string1
-10 .
-10 + 20 .
-10 + 20*30 .
-(10+20) * (30+40) .
-((10+20) - (30+40)) - (50+70)*80 .
-$ ./genrec examples/grammar1.ebnf examples/string1
-$ echo $?
-0
-$ ./genrec examples/grammar1.ebnf examples/string1 -c
-$ echo $?
-0
-$ ./genrec examples/grammar1.ebnf examples/string1 -f
-FIRST(expr) = { #26, #29, #30 }
-FIRST(dot) = { #28 }
-FIRST(eof) = { #25 }
-FIRST(program) = { #26, #29, #30 }
-FIRST(term) = { #26, #29, #30 }
-FIRST(plus) = { #1 }
-FIRST(minus) = { #2 }
-FIRST(factor) = { #26, #29, #30 }
-FIRST(mul) = { #4 }
-FIRST(div) = { #3 }
-FIRST(id) = { #29 }
-FIRST(num) = { #30 }
-FIRST(lparen) = { #26 }
-FIRST(rparen) = { #27 }
-$ ./genrec examples/grammar1.ebnf examples/string1 -v
->> replacing `program' << (examples/string1:1)
--->> replacing `expr' (examples/string1:1)
----->> replacing `term' (examples/string1:1)
------->> replacing `factor' (examples/string1:1)
--------->> replacing `num' (examples/string1:1)
-----------<< matched #30 (examples/string1:1)
--->> replacing `dot' (examples/string1:1)
-----<< matched #28 (examples/string1:1)
--->> replacing `expr' (examples/string1:2)
----->> replacing `term' (examples/string1:2)
------->> replacing `factor' (examples/string1:2)
--------->> replacing `num' (examples/string1:2)
-----------<< matched #30 (examples/string1:2)
----->> replacing `plus' (examples/string1:2)
-------<< matched #1 (examples/string1:2)
----->> replacing `term' (examples/string1:2)
------->> replacing `factor' (examples/string1:2)
--------->> replacing `num' (examples/string1:2)
-----------<< matched #30 (examples/string1:2)
--->> replacing `dot' (examples/string1:2)
-----<< matched #28 (examples/string1:2)
-[...]
-```
+The `-c` option checks the input grammar for [LL(1) Conflicts](https://en.wikipedia.org/wiki/LL_parser#Conflicts).
+These conflicts can be left recursion (immediate or indirect), First/First conflicts,
+and First/Follow conflicts.
 
 ## Limitations
 
-* It only recognizes LL(1) grammars.
-* First sets are represented as `uint64_t` bit vectors. Because of this, terminals (tokens) must have values in the interval [0, 63].
-* As mentioned earlier, the `-c` options only works with grammars that have less than 65 rules (for similar reasons as the previous limitation).
-* Being only a recognizer, its usefulness is limited (unlike a parser, it is not going to return any AST or similar representation). Nevertheless, it may be of interest to those learning recursive-descent parsing.
+ - Sets are represented internally with `uint64_t` bit vectors. This limits the
+   number of rules to 64, and the number of terminals (tokens) to 63 (the most
+   significant bit is reserved to represent ε).
