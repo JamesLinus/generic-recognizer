@@ -1,0 +1,34 @@
+_SYNTAX PROGRAM
+
+PROGRAM = '_SYNTAX' _ID _OUT('ADR ' *)
+          $ ST
+          '_END' _OUT('END') ;
+
+ST = _ID _LABEL * '=' EX1 ';' _OUT('R') ;
+
+EX1 = EX2 $('/' _OUT('BT ' _L1) EX2)
+      _LABEL _L1 ;
+
+EX2 = (EX3 _OUT('BF ' _L1) / OUTPUT)
+      $(EX3 _OUT('BE') / OUTPUT)
+      _LABEL _L1 ;
+
+EX3 = _ID       _OUT('CLL '*) /
+      _STRING   _OUT('TST '*) /
+      '_ID'     _OUT('ID')    /
+      '_NUMBER' _OUT('NUM')   /
+      '_STRING' _OUT('SR')    /
+      '(' EX1 ')'             /
+      '_EMPTY'  _OUT('SET')   /
+      '$' _LABEL _L1 EX3 _OUT('BT ' _L1) _OUT('SET') ;
+
+OUTPUT = ('_OUT' '(' $OUT1 ')' /
+          '_LABEL' _OUT('LB') OUT1)
+         _OUT('OUT') ;
+
+OUT1 = '_L1'    _OUT('GN1')  /
+       '_L2'    _OUT('GN2')  /
+       '*'      _OUT('CI')   /
+       _STRING  _OUT('CL '*) ;
+
+_END
