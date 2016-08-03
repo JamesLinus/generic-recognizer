@@ -10,6 +10,12 @@ typedef struct Keyword Keyword;
 
 static int lineno = 1;
 static char *buf, *curr;
+static char token_string[MAX_TOKSTR_LEN];
+
+const char *lex_token_string(void)
+{
+    return token_string;
+}
 
 enum {
 #define X(a, b) TOK_ ## a,
@@ -71,9 +77,10 @@ const char *lex_keyword_iterate(int begin)
 
 static int is_id(const char *s)
 {
-    if (!isalpha(*s++))
+    if (!isalpha(*s) && *s!='_')
         return 0;
-    while (*s!='\0' && isalnum(*s))
+    ++s;
+    while (isalnum(*s))
         ++s;
     return *s == '\0';
 }
@@ -145,12 +152,12 @@ int lex_get_token(void)
         START,
         INID,
         INNUM,
-        INSTR,
+        INSTR1,
+        INSTR2,
     };
     int state;
     int save, cindx;
     static int eof_reached = 0;
-    char lexeme[512];
 
     if (eof_reached)
         return TOK_EOF;
@@ -177,25 +184,31 @@ int lex_get_token(void)
                 save = 0;
             }*/else if (isdigit(c)) {
                 state = INNUM;
-            } else if (c == '"') {
-                state = INSTR;
+            } else if (c == '\'') {
+                state = INSTR1;
+            } else if (c == '\"') {
+                state = INSTR2;
             } else {
                 switch (c) {
                 case '\0':
                     eof_reached = 1;
                     return TOK_EOF;
-                case '(':
-                    return TOK_LPAREN;
-                case ')':
-                    return TOK_RPAREN;
-                case '/':
-                    return TOK_DIV;
-                case '*':
-                    return TOK_MUL;
-                case '+':
-                    return TOK_PLUS;
-                case '-':
-                    return TOK_MINUS;
+                case '(': return TOK_LPAREN;
+                case ')': return TOK_RPAREN;
+                case '/': return TOK_DIV;
+                case '*': return TOK_MUL;
+                case '+': return TOK_PLUS;
+                case '-': return TOK_MINUS;
+                case '#': return TOK_NEQ;
+                case '=': return TOK_EQ;
+                case ',': return TOK_COMMA;
+                case ';': return TOK_SEMI;
+                case '.': return TOK_DOT;
+                case '|': return TOK_VBAR;
+                case '[': return TOK_LBRACKET;
+                case ']': return TOK_RBRACKET;
+                case '$': return TOK_DOLLAR;
+                case '^': return TOK_CARET;
                 case '>':
                     if (*curr == '=') {
                         ++curr;
@@ -208,26 +221,18 @@ int lex_get_token(void)
                         return TOK_LET;
                     }
                     return TOK_LT;
-                case '#':
-                    return TOK_NEQ;
-                case '=':
-                    return TOK_EQ;
-                case ',':
-                    return TOK_COMMA;
-                case ';':
-                    return TOK_SEMI;
-                case '.':
-                    return TOK_DOT;
-                case '|':
-                    return TOK_VBAR;
                 case '{':
+                    if (*curr == '{') {
+                        ++curr;
+                        return TOK_LBRACE2;
+                    }
                     return TOK_LBRACE;
                 case '}':
+                    if (*curr == '}') {
+                        ++curr;
+                        return TOK_RBRACE2;
+                    }
                     return TOK_RBRACE;
-                case '[':
-                    return TOK_LBRACKET;
-                case ']':
-                    return TOK_RBRACKET;
                 case ':':
                     if (*curr == '=') {
                         ++curr;
@@ -246,9 +251,9 @@ int lex_get_token(void)
                 Keyword *t;
 
                 --curr;
-                lexeme[cindx] = '\0';
+                token_string[cindx] = '\0';
                 for (t = keywords; t != NULL; t = t->next)
-                    if (strcmp(lexeme, t->str) == 0)
+                    if (strcmp(token_string, t->str) == 0)
                         return t->num;
                 return TOK_ID;
             }
@@ -257,13 +262,25 @@ int lex_get_token(void)
         case INNUM:
             if (!isdigit(c)) {
                 --curr;
+                token_string[cindx] = '\0';
                 return TOK_NUM;
             }
             break;
 
-        case INSTR:
-            if (c == '"')
-                return TOK_STR;
+        case INSTR1:
+            if (c == '\'') {
+                token_string[cindx++] = (char)c;
+                token_string[cindx] = '\0';
+                return TOK_STR1;
+            }
+            break;
+
+        case INSTR2:
+            if (c == '\"') {
+                token_string[cindx++] = (char)c;
+                token_string[cindx] = '\0';
+                return TOK_STR2;
+            }
             break;
 
         default:
@@ -271,7 +288,7 @@ int lex_get_token(void)
             break;
         } /* switch (state) */
         if (save)
-            lexeme[cindx++] = (char)c;
+            token_string[cindx++] = (char)c;
     }
     assert(0);
 }

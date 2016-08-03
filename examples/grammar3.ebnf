@@ -10,6 +10,14 @@ grammar* = rule { rule } "." ;
 rule = #ID [ "*" ] "=" expr ";" ;
 expr = term { "|" term } ;
 term = factor { factor } ;
-factor = #ID | "#" #ID | #STR | "(" expr ")" | "{" expr "}" | "[" expr "]" ;
+factor = #ID
+       | "#" #ID
+       | #STR2
+       | "(" expr ")"
+       | "{" expr "}"
+       | "[" expr "]"
+       | output ;
+output = "{{" outexpr { outexpr } "}}" ;
+outexpr = #STR2 | "*" [ #NUM ] | ";" ;
 
 .

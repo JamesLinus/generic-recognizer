@@ -12,8 +12,8 @@
 ! assign_stmt  call_stmt
 !
 ! The ALTER operator uses the First sets of its children to decide the
-! side to which recurse. call_stmt, being in the right-hand side, will
-! never be used to match input that starts with ID.
+! side to which recurse. Because ALTER tests against its left child first,
+! call_stmt will never be used to match input beginning with ID.
 ! A string like "abc := 1234" will be accepted, but one like "abc()" (also
 ! belonging to the language) will be rejected.
 !
