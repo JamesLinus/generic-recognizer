@@ -77,6 +77,81 @@ The `-c` option checks the input grammar for [LL(1) Conflicts](https://en.wikipe
 These conflicts can be left recursion (immediate or indirect), First/First conflicts,
 and First/Follow conflicts.
 
+Sometimes, a grammar containing conflicts can still be used and will beheave
+in a deterministic manner. The following points are relevant in determining
+the behavior:
+
+ - All the operators consult uniquely the First sets of their operands to decide
+   where to direct the flow of control of the recognition.
+ - The `|` operator tests its operands from left to right. For example, given
+   the rule
+
+     ```
+     S = α | β ;
+     ```
+
+   if there is a First/First conflict between `α` and `β`, then `β` will be unreachable
+   on those symbols that cause the conflict (see [grammar7.ebnf](examples/grammar7.ebnf)).
+ - `[]` (and `{}`) tests the current token of lookahead against the First set of its
+   operand to decide if it applies or not. For example, given the rule
+
+   ```
+   S = α [ β ] γ ;
+   ```
+
+   `[]` will apply `β` when the current token is in First(β) and will not care if
+   it is also in First(γ). This is how the [dangling else problem](https://en.wikipedia.org/wiki/Dangling_else)
+   is resolved (see [grammar6.ebnf](examples/grammar.ebnf)).
+
+Left recursion almost certainly will cause the death of the recognizer by infinite
+recursion, so under the `-c` option left recursion is considered a fatal error.
+
+## Generating output
+
+You can cause the generation of output by embedding outputting constructs
+directly into the grammar. The basic idea is borrowed from [META II](https://en.wikipedia.org/wiki/META_II).
+The following example translates simple arithmetic expressions into assembly code
+for a stack machine:
+
+    $ cat expr.ebnf
+    program* = { expr "." } ;
+    expr = term { "+" term {{ "ADD" }}
+                | "-" term {{ "SUB" }} } ;
+    term = factor { "*" factor {{ "MUL" }}
+                  | "/" factor {{ "DIV" }} } ;
+    factor = #ID {{ "LD " * }} | #NUM {{ "LDL " * }} | "(" expr ")" ;
+    .
+    $ cat expr_string
+    a*b+c/2.
+    $ ./genrec expr.ebnf expr_string
+    LD a
+    LD b
+    MUL
+    LD c
+    LDL 2
+    DIV
+    ADD
+
+Output constructs are introduced with `{{}}`. These constructs need to be
+attached (concatenated) to something (before or after depending on when you
+want the output to be emitted). The output is line-oriented, meaning that a
+new-line character is emitted after each construct. One or more of the following
+things can appear between the `{{}}`:
+
+ - A double-quoted string (e.g. `"ADD"`) to output text verbatim.
+ - A `;` to output a new-line character.
+ - A `*` to output the last matched token.
+ - A `*1` or `*2` to output a generated label of the form `L1, L2, ...`.
+   The first time `*1` appears in a production rule a label is generated
+   and outputted and that same label is outputted wherever `*1` appears
+   again in the _same_ rule. Something similar happens for `*2`.
+
+The following example uses the label generation capabilities:
+
+    if_stmt = "if" expr "then" {{ "BF " *1 }}
+              stmt "else" {{ "B " *2 ; *1 }}
+              stmt {{ *2 }} ;
+
 ## Limitations
 
  - Sets are represented internally with `uint64_t` bit vectors. This limits the
