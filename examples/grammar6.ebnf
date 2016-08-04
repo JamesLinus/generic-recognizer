@@ -1,0 +1,11 @@
+!
+! Standard if-statement with "dangling else" ambiguity.
+! Should give a First/Follow conflict.
+!
+
+program* = { stmt } ;
+stmt = if_stmt | ";" ;
+if_stmt = "if" "(" expr ")" stmt [ "else" stmt ] ;
+expr = #NUM ;
+
+.
