@@ -77,7 +77,7 @@ The `-c` option checks the input grammar for [LL(1) Conflicts](https://en.wikipe
 These conflicts can be left recursion (immediate or indirect), First/First conflicts,
 and First/Follow conflicts.
 
-Sometimes, a grammar containing conflicts can still be used and will beheave
+Sometimes, a grammar containing conflicts can still be used and will behave
 in a deterministic manner. The following points are relevant in determining
 the behavior:
 
@@ -101,7 +101,7 @@ the behavior:
 
    `[]` will apply `β` when the current token is in First(β) and will not care if
    it is also in First(γ). This is how the [dangling else problem](https://en.wikipedia.org/wiki/Dangling_else)
-   is resolved (see [grammar6.ebnf](examples/grammar.ebnf)).
+   is resolved (see [grammar6.ebnf](examples/grammar6.ebnf)).
 
 Left recursion almost certainly will cause the death of the recognizer by infinite
 recursion, so under the `-c` option left recursion is considered a fatal error.
@@ -143,8 +143,8 @@ things can appear between the `{{}}`:
  - A `*` to output the last matched token.
  - A `*1` or `*2` to output a generated label of the form `L1, L2, ...`.
    The first time `*1` appears in a production rule a label is generated
-   and outputted and that same label is outputted wherever `*1` appears
-   again in the _same_ rule. Something similar happens for `*2`.
+   and outputted and this same label will be outputted wherever `*1` is
+   encountered again in the _same_ rule. Something similar happens for `*2`.
 
 The following example uses the label generation capabilities:
 
