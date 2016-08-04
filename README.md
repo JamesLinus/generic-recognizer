@@ -6,8 +6,8 @@ Here is an example of a grammar describing the [JSON](https://en.wikipedia.org/w
     ! I'm a comment.
     object* = "{" [ pairs ] "}" ;
     pairs = pair { "," pair } ;
-    pair = #STR ":" value ;
-    value = #STR | #NUM | "true" | "false" | "null" | object | array ;
+    pair = #STR2 ":" value ;
+    value = #STR2 | #NUM | "true" | "false" | "null" | object | array ;
     array = "[" [ elements ] "]" ;
     elements = value { "," value } ;
     .
