@@ -25,8 +25,6 @@
 #include "util.h"
 #include "lex.h"
 
-#define TRUE            1
-#define FALSE           0
 #define MAX_TOKSTR      512
 #define HASH_SIZE       1009
 #define HASH(s)         (hash(s)%HASH_SIZE)
@@ -720,6 +718,7 @@ static void recognize(Node *n, int *lab1, int *lab2)
 
     switch (n->kind) {
     case OutKind: {
+        int ended;
         OutList *t;
 
         for (t = n->attr.out_list; t != NULL; t = t->next) {
@@ -735,11 +734,15 @@ static void recognize(Node *n, int *lab1, int *lab2)
                 printf("L%d", *lab2);
             } else if (t->val == O_END) {
                 printf("\n");
+                ended = TRUE;
+                continue;
             } else {
                 printf("%s", t->val);
             }
+            ended = FALSE;
         }
-        printf("\n");
+        if (!ended)
+            printf("\n");
     }
         break;
     case TermKind:
@@ -879,7 +882,20 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
                     fprintf(rec_file, "\n");
                 fmtbuf[0] = argbuf[0] = '\0';
             } else {
-                strcat(fmtbuf, t->val);
+                char *x, *y;
+
+                x = fmtbuf+strlen(fmtbuf);
+                y = t->val;
+                while (*y != '\0') {
+                    if (*y == '\n') {
+                        *x++ = '\\';
+                        *x++ = 'n';
+                    } else {
+                        *x++ = *y;
+                    }
+                    ++y;
+                }
+                *x = *y;
             }
         }
         if (fmtbuf[0] != '\0')
