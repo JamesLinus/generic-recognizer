@@ -10,7 +10,6 @@ unsigned hash(char *s)
     return hash_val;
 }
 
-
 char *read_file(char *path)
 {
     FILE *fp;

@@ -10,6 +10,6 @@ factor = #ID
        | "[" expr "]"
        | output ;
 output = "{{" outexpr { outexpr } "}}" ;
-outexpr = #STR2 | "*" [ #NUM ] | ";" ;
+outexpr = #STR2 | "*" [ #NUM ] | ";" | "+" | "-" ;
 
 .

@@ -13,7 +13,7 @@
            | "[" expr "]"
            | output ;
     output = "{{" outexpr { outexpr } "}}" ;
-    outexpr = STR | "*" [ NUM ] | ";" ;
+    outexpr = STR | "*" [ NUM ] | ";" | "+" | "-" ;
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,6 +57,8 @@ typedef enum {
     TOK_LBRACE2,
     TOK_RBRACE2,
     TOK_STAR,
+    TOK_PLUS,
+    TOK_MINUS,
     TOK_ALTER,      /* | */
     TOK_CONCAT,     /*   */
     TOK_REPET,      /* {} */
@@ -74,11 +76,13 @@ static int curr_tok;
 static int indent_level;
 static FILE *rec_file;
 
-static char o_last, o_lab1, o_lab2, o_end;
+static char o_last, o_lab1, o_lab2, o_end, o_inc, o_dec;
 #define O_LAST (&o_last)
 #define O_LAB1 (&o_lab1)
 #define O_LAB2 (&o_lab2)
 #define O_END  (&o_end)
+#define O_INC  (&o_inc)
+#define O_DEC  (&o_dec)
 static int label_counter = 1;
 #define USES_LAB1 0x01
 #define USES_LAB2 0x02
@@ -240,6 +244,8 @@ static Token get_token(void)
                 case '|': tok = TOK_ALTER;  break;
                 case '=': tok = TOK_EQ;     break;
                 case '*': tok = TOK_STAR;   break;
+                case '+': tok = TOK_PLUS;   break;
+                case '-': tok = TOK_MINUS;  break;
                 default:
                     save = FALSE;
                     state = START;
@@ -375,7 +381,7 @@ static Node *expr(void);
            | "[" expr "]"
            | output ;
     output = "{{" outexpr { outexpr } "}}" ;
-    outexpr = STR | "*" [ NUM ] | ";" ;
+    outexpr = STR | "*" [ NUM ] | ";" | "+" | "-" ;
 */
 static Node *factor(void)
 {
@@ -432,13 +438,16 @@ static Node *factor(void)
         match(TOK_LBRACE2);
         t = &h;
         goto first;
-        while (LA==TOK_STR || LA==TOK_STAR || LA==TOK_SEMI) {
+        while (LA==TOK_STR || LA==TOK_STAR || LA==TOK_SEMI
+        || LA==TOK_PLUS || LA==TOK_MINUS) {
     first:  t->next = malloc(sizeof(*t));
             t = t->next;
-            if (LA == TOK_STR) {
+            switch (LA) {
+            case TOK_STR:
                 t->val = strdup(token_string);
                 match(TOK_STR);
-            } else if (LA == TOK_STAR) {
+                break;
+            case TOK_STAR:
                 match(TOK_STAR);
                 if (LA == TOK_NUM) {
                     switch (atoi(token_string)) {
@@ -457,9 +466,19 @@ static Node *factor(void)
                 } else {
                     t->val = O_LAST;
                 }
-            } else {
+                break;
+            case TOK_PLUS:
+                t->val = O_INC;
+                match(TOK_PLUS);
+                break;
+            case TOK_MINUS:
+                t->val = O_DEC;
+                match(TOK_MINUS);
+                break;
+            default:
                 match(TOK_SEMI);
                 t->val = O_END;
+                break;
             }
         }
         match(TOK_RBRACE2);
@@ -718,30 +737,38 @@ static void recognize(Node *n, int *lab1, int *lab2)
 
     switch (n->kind) {
     case OutKind: {
-        int ended;
+        int atbeg;
         OutList *t;
+        static int idnt = 0;
 
+        atbeg = TRUE;
         for (t = n->attr.out_list; t != NULL; t = t->next) {
             if (t->val == O_LAST) {
-                printf("%s", lastbuf);
+                printf("%*s%s", (atbeg && idnt>0)?idnt:0, "", lastbuf);
+                atbeg = FALSE;
             } else if (t->val == O_LAB1) {
                 if (*lab1 == -1)
                     *lab1 = label_counter++;
-                printf("L%d", *lab1);
+                printf("%*sL%d", (atbeg && idnt>0)?idnt:0, "", *lab1);
+                atbeg = FALSE;
             } else if (t->val == O_LAB2) {
                 if (*lab2 == -1)
                     *lab2 = label_counter++;
-                printf("L%d", *lab2);
+                printf("%*sL%d", (atbeg && idnt>0)?idnt:0, "", *lab2);
+                atbeg = FALSE;
+            } else if (t->val == O_INC) {
+                idnt += 4;
+            } else if (t->val == O_DEC) {
+                idnt -= 4;
             } else if (t->val == O_END) {
                 printf("\n");
-                ended = TRUE;
-                continue;
+                atbeg = TRUE;
             } else {
-                printf("%s", t->val);
+                printf("%*s%s", (atbeg && idnt>0)?idnt:0, "", t->val);
+                atbeg = FALSE;
             }
-            ended = FALSE;
         }
-        if (!ended)
+        if (!atbeg)
             printf("\n");
     }
         break;
@@ -860,10 +887,11 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
     switch (n->kind) {
     case OutKind: {
         OutList *t;
-        char fmtbuf[1024], argbuf[1024];
+        char fmtbuf[2048], argbuf[1024];
+        int toadd;
 
-        if (in_alter)
-            assert(0);
+        assert(!in_alter);
+        toadd = 0;
         fmtbuf[0] = argbuf[0] = '\0';
         for (t = n->attr.out_list; t != NULL; t = t->next) {
             if (t->val == O_LAST) {
@@ -875,9 +903,23 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
             } else if (t->val == O_LAB2) {
                 strcat(fmtbuf, "L%d");
                 strcat(argbuf, ", getlab(&lab2)");
+            } else if (t->val == O_INC) {
+                if (fmtbuf[0] == '\0')
+                    EMITLN(indent, "indent += 4;");
+                else
+                    toadd += 4;
+            } else if (t->val == O_DEC) {
+                if (fmtbuf[0] == '\0')
+                    EMITLN(indent, "indent += -4;");
+                else
+                    toadd -= 4;
             } else if (t->val == O_END) {
-                strcat(fmtbuf, "\\n");
-                EMIT(indent, "printf(\"%s\"%s);", fmtbuf, argbuf);
+                EMIT(indent, "printf(\"%%*s%s\\n\", get_indent(), \"\"%s);", fmtbuf, argbuf);
+                if (toadd != 0) {
+                    fprintf(rec_file, "\n");
+                    EMIT(indent, "indent += %d;", toadd);
+                    toadd = 0;
+                }
                 if (t->next != NULL)
                     fprintf(rec_file, "\n");
                 fmtbuf[0] = argbuf[0] = '\0';
@@ -899,7 +941,11 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
             }
         }
         if (fmtbuf[0] != '\0')
-            EMIT(indent, "printf(\"%s\\n\"%s);", fmtbuf, argbuf);
+            EMIT(indent, "printf(\"%%*s%s\\n\", get_indent(), \"\"%s);", fmtbuf, argbuf);
+        if (toadd != 0) {
+            fprintf(rec_file, "\n");
+            EMIT(indent, "indent += %d;", toadd);
+        }
     }
         break;
     case TermKind:
@@ -1013,6 +1059,8 @@ static void generate_recognizer(void)
     "static char *prog_name, *string_file;\n"
     "static char last_tokstr[MAX_TOKSTR_LEN];\n"
     "static int label_counter = 1;\n"
+    "static int indent = 0;\n"
+    "#define get_indent() (indent>0?indent:0)\n"
     "#define LA(x) (curr_tok == (x))\n"
     "static void error(void)\n"
     "{\n"

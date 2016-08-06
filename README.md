@@ -145,6 +145,12 @@ things can appear between the `{{}}`:
    The first time `*1` appears in a production rule a label is generated
    and outputted and this same label will be outputted wherever `*1` is
    encountered again in the _same_ rule. Something similar happens for `*2`.
+ - `+` to increase the indentation level.
+ - `-` to decrease the indentation level.
+
+The default indentation level is zero. An indentation level of zero or below
+means the lines are outputted with no indentation. Each indentation level
+represents 4 space characters.
 
 The following example uses the label generation capabilities:
 
