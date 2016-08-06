@@ -180,6 +180,7 @@ static Token get_token(void)
     Token tok;
     int state;
     int save, cindx;
+    int str_line;
     static int eof_reached = FALSE;
 
     if (eof_reached)
@@ -205,6 +206,7 @@ static Token get_token(void)
             } else if (c == '"') {
                 save = FALSE;
                 state = INSTR;
+                str_line = line_number;
             } else if (c == '!') {
                 save = FALSE;
                 state = INCOMMENT;
@@ -284,6 +286,11 @@ static Token get_token(void)
             if (c == '"') {
                 FINISH(TOK_STR);
                 ++curr_ch;
+            } else if (c == '\n') {
+                ++line_number;
+            } else if (c == '\0') {
+                line_number = str_line;
+                err(1, GRA_SYN_ERR, "unterminated string");
             }
             break;
 

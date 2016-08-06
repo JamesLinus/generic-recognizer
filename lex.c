@@ -157,6 +157,8 @@ int lex_get_token(void)
     };
     int state;
     int save, cindx;
+    char *str_begin;
+    int str_line;
     static int eof_reached = 0;
 
     if (eof_reached)
@@ -186,8 +188,12 @@ int lex_get_token(void)
                 state = INNUM;
             } else if (c == '\'') {
                 state = INSTR1;
+                str_begin = curr-1;
+                str_line = lineno;
             } else if (c == '\"') {
                 state = INSTR2;
+                str_begin = curr-1;
+                str_line = lineno;
             } else {
                 switch (c) {
                 case '\0':
@@ -272,6 +278,13 @@ int lex_get_token(void)
                 token_string[cindx++] = (char)c;
                 token_string[cindx] = '\0';
                 return TOK_STR1;
+            } else if (c == '\n') {
+                ++lineno;
+            } else if (c == '\0') {
+                curr = str_begin;
+                lineno = str_line;
+                token_string[0] = '\0';
+                return TOK_UNKNOWN;
             }
             break;
 
@@ -280,6 +293,13 @@ int lex_get_token(void)
                 token_string[cindx++] = (char)c;
                 token_string[cindx] = '\0';
                 return TOK_STR2;
+            } else if (c == '\n') {
+                ++lineno;
+            } else if (c == '\0') {
+                curr = str_begin;
+                lineno = str_line;
+                token_string[0] = '\0';
+                return TOK_UNKNOWN;
             }
             break;
 
