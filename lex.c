@@ -275,9 +275,14 @@ int lex_get_token(void)
 
         case INSTR1:
             if (c == '\'') {
-                token_string[cindx++] = (char)c;
-                token_string[cindx] = '\0';
-                return TOK_STR1;
+                if (curr[-2] != '\\') {
+                    token_string[cindx++] = (char)c;
+                    token_string[cindx] = '\0';
+                    return TOK_STR1;
+                } else {
+                    c = '\'';
+                    --cindx;
+                }
             } else if (c == '\n') {
                 ++lineno;
             } else if (c == '\0') {
@@ -290,9 +295,14 @@ int lex_get_token(void)
 
         case INSTR2:
             if (c == '\"') {
-                token_string[cindx++] = (char)c;
-                token_string[cindx] = '\0';
-                return TOK_STR2;
+                if (curr[-2] != '\\') {
+                    token_string[cindx++] = (char)c;
+                    token_string[cindx] = '\0';
+                    return TOK_STR2;
+                } else {
+                    c = '\"';
+                    --cindx;
+                }
             } else if (c == '\n') {
                 ++lineno;
             } else if (c == '\0') {

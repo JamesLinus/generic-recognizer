@@ -284,8 +284,13 @@ static Token get_token(void)
 
         case INSTR:
             if (c == '"') {
-                FINISH(TOK_STR);
-                ++curr_ch;
+                if (curr_ch[-2] != '\\') {
+                    FINISH(TOK_STR);
+                    ++curr_ch;
+                } else {
+                    c = '\"';
+                    --cindx;
+                }
             } else if (c == '\n') {
                 ++line_number;
             } else if (c == '\0') {
@@ -936,11 +941,22 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
                 x = fmtbuf+strlen(fmtbuf);
                 y = t->val;
                 while (*y != '\0') {
-                    if (*y == '\n') {
+                    switch (*y) {
+                    case '\n':
                         *x++ = '\\';
                         *x++ = 'n';
-                    } else {
+                        break;
+                    case '\"':
+                        *x++ = '\\';
+                        *x++ = '\"';
+                        break;
+                    case '\\':
+                        *x++ = '\\';
+                        *x++ = '\\';
+                        break;
+                    default:
                         *x++ = *y;
+                        break;
                     }
                     ++y;
                 }
