@@ -147,10 +147,27 @@ things can appear between the `{{}}`:
    encountered again in the _same_ rule. Something similar happens for `*2`.
  - `+` to increase the indentation level.
  - `-` to decrease the indentation level.
+ - An identifier to output a named-token (explained below). This is to
+   complement `*` when one wants to output a token other than the last
+   one matched.
 
 The default indentation level is zero. An indentation level of zero or below
 means the lines are outputted with no indentation. Each indentation level
 represents 4 space characters.
+
+One can give a name to a matched token and reference it later within `{{...}}`.
+Token naming only works for tokens specified through the form `# token` (e.g.
+`#ID`, `#NUM`, `#STR`). For example:
+
+    ! To give a name to a matched token one writes
+    !     < # token : name >
+    assign_stmt = <#ID:dest_var> "=" expr {{ "ST "dest_var }} ;
+
+There are some limitations. First, all names reside in a single flat namespace;
+one can reference names defined in other rules and names with same spelling in
+different rules will collide. Second, token strings of named-tokens are stored
+in static buffers, one buffer per name, so recursive rules may produce some
+unintended results due to overwriting of said buffers.
 
 The following example uses the label generation capabilities:
 

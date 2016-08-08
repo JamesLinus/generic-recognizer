@@ -8,6 +8,7 @@ factor = #ID
        | "(" expr ")"
        | "{" expr "}"
        | "[" expr "]"
+       | "<" "#" #ID ":" #ID ">"
        | output ;
 output = "{{" outexpr { outexpr } "}}" ;
 outexpr = #STR2 | "*" [ #NUM ] | ";" | "+" | "-" ;

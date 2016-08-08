@@ -11,9 +11,10 @@
            | "(" expr ")"
            | "{" expr "}"
            | "[" expr "]"
+           | "<" "#" ID ":" ID ">"
            | output ;
     output = "{{" outexpr { outexpr } "}}" ;
-    outexpr = STR | "*" [ NUM ] | ";" | "+" | "-" ;
+    outexpr = STR | "*" [ NUM ] | ID | ";" | "+" | "-" ;
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +26,6 @@
 #include "util.h"
 #include "lex.h"
 
-#define MAX_TOKSTR      512
 #define HASH_SIZE       1009
 #define HASH(s)         (hash(s)%HASH_SIZE)
 #define MAX_RULES       256
@@ -35,10 +35,12 @@
 #define GRA_ERR         0
 #define GRA_SYN_ERR     1
 #define STR_ERR         2
+#define MAX_NAM_TOK     64
 
 typedef struct Node Node;
 typedef struct NodeChain NodeChain;
 typedef struct OutList OutList;
+typedef struct FixUp FixUp;
 
 typedef enum {
     TOK_DOT,
@@ -56,6 +58,9 @@ typedef enum {
     TOK_RBRACKET,
     TOK_LBRACE2,
     TOK_RBRACE2,
+    TOK_LANGLE,
+    TOK_RANGLE,
+    TOK_COLON,
     TOK_STAR,
     TOK_PLUS,
     TOK_MINUS,
@@ -67,7 +72,7 @@ typedef enum {
 
 static char *prog_name;
 static char *grammar_file_path, *string_file_path;
-static char *grammar_buf, *curr_ch, token_string[MAX_TOKSTR];
+static char *grammar_buf, *curr_ch, token_string[MAX_TOKSTR_LEN];
 static Token grammar_curr_tok;
 #define LA grammar_curr_tok
 static int line_number = 1;
@@ -76,23 +81,26 @@ static int curr_tok;
 static int indent_level;
 static FILE *rec_file;
 
-static char o_last, o_lab1, o_lab2, o_end, o_inc, o_dec;
-#define O_LAST (&o_last)
-#define O_LAB1 (&o_lab1)
-#define O_LAB2 (&o_lab2)
-#define O_END  (&o_end)
-#define O_INC  (&o_inc)
-#define O_DEC  (&o_dec)
 static int label_counter = 1;
 #define USES_LAB1 0x01
 #define USES_LAB2 0x02
 static char label_usage[MAX_RULES];
 static int uses_lab1, uses_lab2;
 
+enum {
+    O_LAST, O_LAB1, O_LAB2, O_END, O_INC, O_DEC, O_VER, O_TN,
+};
+
 struct OutList {
+    int kind;
     char *val;
     OutList *next;
 };
+
+static struct FixUp {
+    char **p;
+    FixUp *next;
+} *fixup_list;
 
 typedef enum {
     TermKind,
@@ -104,7 +112,10 @@ typedef enum {
 static struct Node {
     NodeKind kind;
     union {
-        int tok_num;
+        struct {
+            int tok_num;
+            int slot;
+        } t;
         int rule_num;
         struct {
             Token tok;
@@ -122,6 +133,11 @@ static uint64_t follows[MAX_RULES];
 static int follow_changed;
 static int have_follow;
 static uint64_t grammar_tokens;
+static struct {
+    char *name;
+    char *tokstr;
+} named_tokens[MAX_NAM_TOK];
+static int named_tokens_counter;
 
 static struct NodeChain {
     int num;
@@ -248,6 +264,9 @@ static Token get_token(void)
                 case '*': tok = TOK_STAR;   break;
                 case '+': tok = TOK_PLUS;   break;
                 case '-': tok = TOK_MINUS;  break;
+                case '<': tok = TOK_LANGLE; break;
+                case '>': tok = TOK_RANGLE; break;
+                case ':': tok = TOK_COLON;  break;
                 default:
                     save = FALSE;
                     state = START;
@@ -382,6 +401,20 @@ static void check_operands(Node *n)
     err(1, GRA_SYN_ERR, "{{...}} must be attached to something");
 }
 
+static int new_named_token(char *name)
+{
+    int i;
+
+    assert(named_tokens_counter < MAX_NAM_TOK);
+    for (i = 0; i < named_tokens_counter; i++)
+        if (strcmp(named_tokens[i].name, name) == 0)
+            err(1, GRA_SYN_ERR, "named token `%s' redefined", name);
+    named_tokens[i].name = strdup(name);
+    named_tokens[i].tokstr = malloc(MAX_TOKSTR_LEN);
+    named_tokens[i].tokstr[0] = '\0';
+    return named_tokens_counter++;
+}
+
 static Node *expr(void);
 
 /*
@@ -391,9 +424,10 @@ static Node *expr(void);
            | "(" expr ")"
            | "{" expr "}"
            | "[" expr "]"
+           | "<" "#" ID ":" ID ">"
            | output ;
     output = "{{" outexpr { outexpr } "}}" ;
-    outexpr = STR | "*" [ NUM ] | ";" | "+" | "-" ;
+    outexpr = STR | "*" [ NUM ] | ID | ";" | "+" | "-" ;
 */
 static Node *factor(void)
 {
@@ -409,18 +443,20 @@ static Node *factor(void)
         match(TOK_HASH);
         if (LA == TOK_ID) {
             n = new_node(TermKind);
-            if ((n->attr.tok_num=lex_name2num(token_string)) == -1)
+            if ((n->attr.t.tok_num=lex_name2num(token_string)) == -1)
                 err(1, GRA_SYN_ERR, "unknown token name `%s'", token_string);
+            n->attr.t.slot = -1;
         }
         match(TOK_ID);
-        grammar_tokens |= 1ULL<<n->attr.tok_num;
+        grammar_tokens |= 1ULL<<n->attr.t.tok_num;
         break;
     case TOK_STR:
         n = new_node(TermKind);
-        if ((n->attr.tok_num=lex_str2num(token_string)) == -1)
+        if ((n->attr.t.tok_num=lex_str2num(token_string)) == -1)
             err(1, GRA_SYN_ERR, "unknown token spelling `%s'", token_string);
+        n->attr.t.slot = -1;
         match(TOK_STR);
-        grammar_tokens |= 1ULL<<n->attr.tok_num;
+        grammar_tokens |= 1ULL<<n->attr.t.tok_num;
         break;
     case TOK_LPAREN:
         match(TOK_LPAREN);
@@ -443,6 +479,21 @@ static Node *factor(void)
         check_operands(n);
         match(TOK_RBRACKET);
         break;
+    case TOK_LANGLE:
+        match(TOK_LANGLE);
+        match(TOK_HASH);
+        if (LA == TOK_ID) {
+            n = new_node(TermKind);
+            if ((n->attr.t.tok_num=lex_name2num(token_string)) == -1)
+                err(1, GRA_SYN_ERR, "unknown token name `%s'", token_string);
+        }
+        match(TOK_ID);
+        match(TOK_COLON);
+        if (LA == TOK_ID)
+            n->attr.t.slot = new_named_token(token_string);
+        match(TOK_ID);
+        match(TOK_RANGLE);
+        break;
     case TOK_LBRACE2: {
         OutList h, *t;
 
@@ -451,11 +502,12 @@ static Node *factor(void)
         t = &h;
         goto first;
         while (LA==TOK_STR || LA==TOK_STAR || LA==TOK_SEMI
-        || LA==TOK_PLUS || LA==TOK_MINUS) {
+        || LA==TOK_PLUS || LA==TOK_MINUS || LA==TOK_ID) {
     first:  t->next = malloc(sizeof(*t));
             t = t->next;
             switch (LA) {
             case TOK_STR:
+                t->kind = O_VER;
                 t->val = strdup(token_string);
                 match(TOK_STR);
                 break;
@@ -464,11 +516,11 @@ static Node *factor(void)
                 if (LA == TOK_NUM) {
                     switch (atoi(token_string)) {
                     case 1:
-                        t->val = O_LAB1;
+                        t->kind = O_LAB1;
                         uses_lab1 = TRUE;
                         break;
                     case 2:
-                        t->val = O_LAB2;
+                        t->kind = O_LAB2;
                         uses_lab2 = TRUE;
                         break;
                     default:
@@ -476,20 +528,32 @@ static Node *factor(void)
                     }
                     match(TOK_NUM);
                 } else {
-                    t->val = O_LAST;
+                    t->kind = O_LAST;
                 }
                 break;
+            case TOK_ID: {
+                FixUp *fx;
+
+                t->kind = O_TN;
+                t->val = strdup(token_string);
+                match(TOK_ID);
+                fx = malloc(sizeof(*fx));
+                fx->p = &t->val;
+                fx->next = fixup_list;
+                fixup_list = fx;
+            }
+                break;
             case TOK_PLUS:
-                t->val = O_INC;
+                t->kind = O_INC;
                 match(TOK_PLUS);
                 break;
             case TOK_MINUS:
-                t->val = O_DEC;
+                t->kind = O_DEC;
                 match(TOK_MINUS);
                 break;
             default:
                 match(TOK_SEMI);
-                t->val = O_END;
+                t->kind = O_END;
                 break;
             }
         }
@@ -546,7 +610,7 @@ static void rule(void)
 {
     Node *n;
     int is_start;
-    char id[MAX_TOKSTR];
+    char id[MAX_TOKSTR_LEN];
     int num;
 
     is_start = FALSE;
@@ -577,10 +641,28 @@ static void rule(void)
 /* grammar = rule { rule } "." */
 static void grammar(void)
 {
+    FixUp *fx, *next;
+
     rule();
     while (LA != TOK_DOT)
         rule();
     match(TOK_DOT);
+
+    for (fx = fixup_list; fx != NULL; fx = next) {
+        int i;
+        char *name;
+
+        name = *fx->p;
+        for (i = 0; i < named_tokens_counter; i++)
+            if (strcmp(named_tokens[i].name, name) == 0)
+                break;
+        if (i >= named_tokens_counter)
+            err(1, GRA_ERR, "named token `%s' referenced but never defined", name);
+        *fx->p = named_tokens[i].tokstr;
+        next = fx->next;
+        free(fx);
+        free(name);
+    }
 }
 
 static uint64_t first(Node *n)
@@ -592,7 +674,7 @@ static uint64_t first(Node *n)
         n->first = EMPTY;
         break;
     case TermKind:
-        n->first = 1ULL<<n->attr.tok_num;
+        n->first = 1ULL<<n->attr.t.tok_num;
         break;
     case NonTermKind:
         n->first = first(rules[n->attr.rule_num]);
@@ -755,29 +837,38 @@ static void recognize(Node *n, int *lab1, int *lab2)
 
         atbeg = TRUE;
         for (t = n->attr.out_list; t != NULL; t = t->next) {
-            if (t->val == O_LAST) {
+            switch (t->kind) {
+            case O_LAST:
                 printf("%*s%s", (atbeg && idnt>0)?idnt:0, "", lastbuf);
                 atbeg = FALSE;
-            } else if (t->val == O_LAB1) {
+                break;
+            case O_LAB1:
                 if (*lab1 == -1)
                     *lab1 = label_counter++;
                 printf("%*sL%d", (atbeg && idnt>0)?idnt:0, "", *lab1);
                 atbeg = FALSE;
-            } else if (t->val == O_LAB2) {
+                break;
+            case O_LAB2:
                 if (*lab2 == -1)
                     *lab2 = label_counter++;
                 printf("%*sL%d", (atbeg && idnt>0)?idnt:0, "", *lab2);
                 atbeg = FALSE;
-            } else if (t->val == O_INC) {
+                break;
+            case O_INC:
                 idnt += 4;
-            } else if (t->val == O_DEC) {
+                break;
+            case O_DEC:
                 idnt -= 4;
-            } else if (t->val == O_END) {
+                break;
+            case O_END:
                 printf("\n");
                 atbeg = TRUE;
-            } else {
+                break;
+            case O_TN:
+            case O_VER:
                 printf("%*s%s", (atbeg && idnt>0)?idnt:0, "", t->val);
                 atbeg = FALSE;
+                break;
             }
         }
         if (!atbeg)
@@ -785,7 +876,7 @@ static void recognize(Node *n, int *lab1, int *lab2)
     }
         break;
     case TermKind:
-        if (curr_tok != n->attr.tok_num)
+        if (curr_tok != n->attr.t.tok_num)
             err(1, STR_ERR, "unexpected `%s'", lex_num2print(curr_tok));
         if (verbose) {
             int i;
@@ -795,6 +886,8 @@ static void recognize(Node *n, int *lab1, int *lab2)
             printf("<< matched `%s' (%s:%d)\n", lex_num2print(curr_tok), string_file_path, lex_lineno());
         }
         strcpy(lastbuf, lex_token_string());
+        if (n->attr.t.slot >= 0)
+            strcpy(named_tokens[n->attr.t.slot].tokstr, lastbuf);
         curr_tok = lex_get_token();
         break;
     case NonTermKind: {
@@ -906,26 +999,32 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
         toadd = 0;
         fmtbuf[0] = argbuf[0] = '\0';
         for (t = n->attr.out_list; t != NULL; t = t->next) {
-            if (t->val == O_LAST) {
+            switch (t->kind) {
+            case O_LAST:
                 strcat(fmtbuf, "%s");
                 strcat(argbuf, ", last_tokstr");
-            } else if (t->val == O_LAB1) {
+                break;
+            case O_LAB1:
                 strcat(fmtbuf, "L%d");
                 strcat(argbuf, ", getlab(&lab1)");
-            } else if (t->val == O_LAB2) {
+                break;
+            case O_LAB2:
                 strcat(fmtbuf, "L%d");
                 strcat(argbuf, ", getlab(&lab2)");
-            } else if (t->val == O_INC) {
+                break;
+            case O_INC:
                 if (fmtbuf[0] == '\0')
                     EMITLN(indent, "indent += 4;");
                 else
                     toadd += 4;
-            } else if (t->val == O_DEC) {
+                break;
+            case O_DEC:
                 if (fmtbuf[0] == '\0')
                     EMITLN(indent, "indent += -4;");
                 else
                     toadd -= 4;
-            } else if (t->val == O_END) {
+                break;
+            case O_END:
                 EMIT(indent, "printf(\"%%*s%s\\n\", get_indent(), \"\"%s);", fmtbuf, argbuf);
                 if (toadd != 0) {
                     fprintf(rec_file, "\n");
@@ -935,7 +1034,8 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
                 if (t->next != NULL)
                     fprintf(rec_file, "\n");
                 fmtbuf[0] = argbuf[0] = '\0';
-            } else {
+                break;
+            case O_VER: {
                 char *x, *y;
 
                 x = fmtbuf+strlen(fmtbuf);
@@ -962,6 +1062,21 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
                 }
                 *x = *y;
             }
+                break;
+            case O_TN: {
+                int i;
+                char x[32];
+
+                strcat(fmtbuf, "%s");
+                for (i = 0; i < named_tokens_counter; i++)
+                    if (named_tokens[i].tokstr == t->val)
+                        break;
+                assert(i < named_tokens_counter);
+                sprintf(x, ", named_tokens[%d]", i);
+                strcat(argbuf, x);
+            }
+                break;
+            }
         }
         if (fmtbuf[0] != '\0')
             EMIT(indent, "printf(\"%%*s%s\\n\", get_indent(), \"\"%s);", fmtbuf, argbuf);
@@ -974,13 +1089,13 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
     case TermKind:
         if (in_alter) {
             if (in_else)
-                fprintf(rec_file, "if (LA(T_%s)) {\n", lex_num2name(n->attr.tok_num));
+                fprintf(rec_file, "if (LA(T_%s)) {\n", lex_num2name(n->attr.t.tok_num));
             else
-                EMITLN(indent, "if (LA(T_%s)) {", lex_num2name(n->attr.tok_num));
-            EMITLN(indent+1, "match(T_%s);", lex_num2name(n->attr.tok_num));
+                EMITLN(indent, "if (LA(T_%s)) {", lex_num2name(n->attr.t.tok_num));
+            EMITLN(indent+1, "match(T_%s, %d);", lex_num2name(n->attr.t.tok_num), n->attr.t.slot);
             EMIT(indent, "}");
         } else {
-            EMIT(indent, "match(T_%s);", lex_num2name(n->attr.tok_num));
+            EMIT(indent, "match(T_%s, %d);", lex_num2name(n->attr.t.tok_num), n->attr.t.slot);
         }
         break;
     case NonTermKind:
@@ -1077,6 +1192,10 @@ static void generate_recognizer(void)
         if (grammar_tokens & (1ULL<<i))
             fprintf(rec_file, "#define T_%s %d\n", lex_num2name(i), i);
 
+    if (named_tokens_counter > 0)
+        fprintf(rec_file, "static char named_tokens[%d][MAX_TOKSTR_LEN];\n",
+        named_tokens_counter);
+
     fprintf(rec_file,
     "static int curr_tok;\n"
     "static char *prog_name, *string_file;\n"
@@ -1091,10 +1210,12 @@ static void generate_recognizer(void)
     "    string_file, lex_lineno(), lex_num2print(curr_tok));\n"
     "    exit(EXIT_FAILURE);\n"
     "}\n"
-    "static void match(int expected)\n"
+    "static void match(int expected, int slot)\n"
     "{\n"
     "    if (curr_tok == expected) {\n"
     "        strcpy(last_tokstr, lex_token_string());\n"
+    "        if (slot >= 0)\n"
+    "            strcpy(named_tokens[slot], last_tokstr);\n"
     "        curr_tok = lex_get_token();\n"
     "    } else {\n"
     "        error();\n"
