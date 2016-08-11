@@ -1,0 +1,34 @@
+!
+! Same as grammar9.ebnf but uses backtracking in EX2 to differentiate
+! between EX3 and OUTPUT (keywords start with a "." now).
+!
+
+PROGRAM* = "." "SYNTAX" #ID {{ + "ADR " * ; }}
+           { ST }
+           "." "END" {{ "END" ; }} ;
+
+ST = #ID {{ - * + ; }} "=" EX1 ";" {{ "R" ; }} ;
+
+EX1 = EX2 { "/" {{ "BT " *1 ; }} EX2 }
+      {{ - *1 + ; }} ;
+
+EX2 = ( [[ EX3 {{ "BF " *1 ; }} | OUTPUT ]] ) { [[ EX3 {{ "BE" ; }} | OUTPUT ]] }
+      {{ - *1 + ; }} ;
+
+EX3 = #ID               {{ "CLL " * ; }}
+    | #STR1             {{ "TST " * ; }}
+    | "." ( "ID"        {{ "ID" ; }}
+          | "NUMBER"    {{ "NUM" ; }}
+          | "STRING"    {{ "SR" ; }}
+          | "EMPTY"     {{ "SET" ; }} )
+    | "(" EX1 ")"
+    | "$" {{ - *1 + ; }} EX3  {{ "BT " *1 ; "SET" ; }} ;
+
+OUTPUT = ( "." ( "OUT" "(" { OUT1 } ")" | "LABEL" {{ "LB" ; }} OUT1 ) ) {{ "OUT" ; }} ;
+
+OUT1 = "." ( "L1"   {{ "GN1" ; }}
+           | "L2"   {{ "GN2" ; }} )
+     | "*"      {{ "CI" ; }}
+     | #STR1    {{ "CL " * ; }} ;
+
+.
