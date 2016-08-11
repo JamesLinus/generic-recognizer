@@ -6,32 +6,32 @@
 !   - `.,' is now `;'.
 !
 
-PROGRAM* = "_SYNTAX" #ID {{ + "ADR " * }}
+PROGRAM* = "_SYNTAX" #ID {{ + "ADR " * ; }}
            { ST }
-           "_END" {{ "END" }} ;
+           "_END" {{ "END" ; }} ;
 
-ST = #ID {{ - * + }} "=" EX1 ";" {{ "R" }} ;
+ST = #ID {{ - * + ; }} "=" EX1 ";" {{ "R" ; }} ;
 
-EX1 = EX2 { "/" {{ "BT " *1 }} EX2 }
-      {{ - *1 + }} ;
+EX1 = EX2 { "/" {{ "BT " *1 ; }} EX2 }
+      {{ - *1 + ; }} ;
 
-EX2 = ( EX3 {{ "BF " *1 }} | OUTPUT ) { EX3 {{ "BE" }} | OUTPUT }
-      {{ - *1 + }} ;
+EX2 = ( EX3 {{ "BF " *1 ; }} | OUTPUT ) { EX3 {{ "BE" ; }} | OUTPUT }
+      {{ - *1 + ; }} ;
 
-EX3 = #ID               {{ "CLL " * }}
-    | #STR1             {{ "TST " * }}
-    | "_ID"             {{ "ID" }}
-    | "_NUMBER"         {{ "NUM" }}
-    | "_STRING"         {{ "SR" }}
+EX3 = #ID               {{ "CLL " * ; }}
+    | #STR1             {{ "TST " * ; }}
+    | "_ID"             {{ "ID" ; }}
+    | "_NUMBER"         {{ "NUM" ; }}
+    | "_STRING"         {{ "SR" ; }}
     | "(" EX1 ")"
-    | "_EMPTY"          {{ "SET" }}
-    | "$" {{ - *1 + }} EX3  {{ "BT " *1 ; "SET" }} ;
+    | "_EMPTY"          {{ "SET" ; }}
+    | "$" {{ - *1 + ; }} EX3  {{ "BT " *1 ; "SET" ; }} ;
 
-OUTPUT = ( "_OUT" "(" { OUT1 } ")" | "_LABEL" {{ "LB" }} OUT1 ) {{ "OUT" }} ;
+OUTPUT = ( "_OUT" "(" { OUT1 } ")" | "_LABEL" {{ "LB" ; }} OUT1 ) {{ "OUT" ; }} ;
 
-OUT1 = "_L1"    {{ "GN1" }}
-     | "_L2"    {{ "GN2" }}
-     | "*"      {{ "CI" }}
-     | #STR1    {{ "CL " * }} ;
+OUT1 = "_L1"    {{ "GN1" ; }}
+     | "_L2"    {{ "GN2" ; }}
+     | "*"      {{ "CI" ; }}
+     | #STR1    {{ "CL " * ; }} ;
 
 .

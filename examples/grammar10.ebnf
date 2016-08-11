@@ -4,13 +4,13 @@
 !
 
 AEXP* = AS { AS } ;
-AS = #ID {{ "address " * }} ":=" EX1 {{ "store" }} ";" ;
-EX1 = EX2 { "+" EX2 {{ "add" }}
-          | "-" EX2 {{ "sub" }} } ;
-EX2 = EX3 { "*" EX3 {{ "mpy" }}
-          | "/" EX3 {{ "div" }} } ;
-EX3 = EX4 { "^" EX3 {{ "exp" }} } ;
-EX4 = "+" EX5 | "-" EX5 {{ "minus" }} | EX5 ;
-EX5 = #ID {{ "load " * }} | #NUM {{ "literal " * }} | "(" EX1 ")" ;
+AS = #ID {{ "address " * ; }} ":=" EX1 {{ "store" ; }} ";" ;
+EX1 = EX2 { "+" EX2 {{ "add" ; }}
+          | "-" EX2 {{ "sub" ; }} } ;
+EX2 = EX3 { "*" EX3 {{ "mpy" ; }}
+          | "/" EX3 {{ "div" ; }} } ;
+EX3 = EX4 { "^" EX3 {{ "exp" ; }} } ;
+EX4 = "+" EX5 | "-" EX5 {{ "minus" ; }} | EX5 ;
+EX5 = #ID {{ "load " * ; }} | #NUM {{ "literal " * ; }} | "(" EX1 ")" ;
 
 .

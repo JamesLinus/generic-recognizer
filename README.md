@@ -115,11 +115,11 @@ for a stack machine:
 
     $ cat expr.ebnf
     program* = { expr "." } ;
-    expr = term { "+" term {{ "ADD" }}
-                | "-" term {{ "SUB" }} } ;
-    term = factor { "*" factor {{ "MUL" }}
-                  | "/" factor {{ "DIV" }} } ;
-    factor = #ID {{ "LD " * }} | #NUM {{ "LDL " * }} | "(" expr ")" ;
+    expr = term { "+" term {{ "ADD" ; }}
+                | "-" term {{ "SUB" ; }} } ;
+    term = factor { "*" factor {{ "MUL" ; }}
+                  | "/" factor {{ "DIV" ; }} } ;
+    factor = #ID {{ "LD " * ; }} | #NUM {{ "LDL " * ; }} | "(" expr ")" ;
     .
     $ cat expr_string
     a*b+c/2.
@@ -132,9 +132,8 @@ for a stack machine:
     DIV
     ADD
 
-Output constructs are introduced with `{{}}`. The output is line-oriented, meaning
-that a new-line character is emitted after each construct. One or more of the following
-things can appear between the `{{}}`:
+Output constructs are introduced with `{{}}`. One or more of the following things
+can appear inside:
 
  - A double-quoted string (e.g. `"ADD"`) to output text verbatim.
  - A `;` to output a new-line character.
@@ -159,7 +158,7 @@ Token naming only works for tokens specified through the form `# token` (e.g.
 
     ! To give a name to a matched token one writes
     !     < # token : name >
-    assign_stmt = <#ID:dest_var> "=" expr {{ "ST "dest_var }} ;
+    assign_stmt = <#ID:dest_var> "=" expr {{ "ST "dest_var ; }} ;
 
 There are some limitations. First, all names reside in a single flat namespace;
 one can reference names defined in other rules and names with same spelling in
@@ -169,9 +168,9 @@ unintended results due to overwriting of said buffers.
 
 The following example uses the label generation capabilities:
 
-    if_stmt = "if" expr "then" {{ "BF " *1 }}
-              stmt "else" {{ "B " *2 ; *1 }}
-              stmt {{ *2 }} ;
+    if_stmt = "if" expr "then" {{ "BF " *1 ; }}
+              stmt "else" {{ "B " *2 ; *1 ; }}
+              stmt {{ *2 ; }} ;
 
 ## Backtracking
 

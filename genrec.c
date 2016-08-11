@@ -86,6 +86,7 @@ static int curr_tok;
 static char last_tokstr_buf[MAX_TOKSTR_LEN];
 static int out_indent;
 static int ver_indent;
+static int out_atbeg = TRUE;
 static FILE *rec_file;
 static StrBuf *outbuf;
 
@@ -153,6 +154,7 @@ struct State {
     int out_pos;
     int out_indent;
     int ver_indent;
+    int out_atbeg;
     char last[MAX_TOKSTR_LEN];
     int label_counter;
     /*char (*named_tokens)[MAX_TOKSTR_LEN];*/
@@ -165,6 +167,7 @@ static void save_state(State *st)
     st->out_pos = strbuf_get_pos(outbuf);
     st->out_indent = out_indent;
     st->ver_indent = ver_indent;
+    st->out_atbeg = out_atbeg;
     strcpy(st->last, last_tokstr_buf);
     st->label_counter = label_counter;
 }
@@ -176,6 +179,7 @@ static void restore_state(State *st)
     strbuf_set_pos(outbuf, st->out_pos);
     out_indent = st->out_indent;
     ver_indent = st->ver_indent;
+    out_atbeg = st->out_atbeg;
     strcpy(last_tokstr_buf, st->last);
     label_counter = st->label_counter;
 }
@@ -883,27 +887,25 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
 
     switch (n->kind) {
     case OutKind: {
-        int atbeg;
         OutList *t;
 
-        atbeg = TRUE;
         for (t = n->attr.out_list; t != NULL; t = t->next) {
             switch (t->kind) {
             case O_LAST:
-                strbuf_printf(outbuf, "%*s%s", (atbeg && out_indent>0)?out_indent:0, "", last_tokstr_buf);
-                atbeg = FALSE;
+                strbuf_printf(outbuf, "%*s%s", (out_atbeg && out_indent>0)?out_indent:0, "", last_tokstr_buf);
+                out_atbeg = FALSE;
                 break;
             case O_LAB1:
                 if (*lab1 == -1)
                     *lab1 = label_counter++;
-                strbuf_printf(outbuf, "%*sL%d", (atbeg && out_indent>0)?out_indent:0, "", *lab1);
-                atbeg = FALSE;
+                strbuf_printf(outbuf, "%*sL%d", (out_atbeg && out_indent>0)?out_indent:0, "", *lab1);
+                out_atbeg = FALSE;
                 break;
             case O_LAB2:
                 if (*lab2 == -1)
                     *lab2 = label_counter++;
-                strbuf_printf(outbuf, "%*sL%d", (atbeg && out_indent>0)?out_indent:0, "", *lab2);
-                atbeg = FALSE;
+                strbuf_printf(outbuf, "%*sL%d", (out_atbeg && out_indent>0)?out_indent:0, "", *lab2);
+                out_atbeg = FALSE;
                 break;
             case O_INC:
                 out_indent += 4;
@@ -913,17 +915,15 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
                 break;
             case O_END:
                 strbuf_printf(outbuf, "\n");
-                atbeg = TRUE;
+                out_atbeg = TRUE;
                 break;
             case O_TN:
             case O_VER:
-                strbuf_printf(outbuf, "%*s%s", (atbeg && out_indent>0)?out_indent:0, "", t->val);
-                atbeg = FALSE;
+                strbuf_printf(outbuf, "%*s%s", (out_atbeg && out_indent>0)?out_indent:0, "", t->val);
+                out_atbeg = FALSE;
                 break;
             }
         }
-        if (!atbeg)
-            strbuf_printf(outbuf, "\n");
         if (!bt)
             strbuf_flush(outbuf);
         res = TRUE;
@@ -1140,7 +1140,7 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
             }
         }
         if (fmtbuf[0] != '\0')
-            EMIT(indent, "printf(\"%%*s%s\\n\", get_indent(), \"\"%s);", fmtbuf, argbuf);
+            EMIT(indent, "printf(\"%%*s%s\", get_indent(), \"\"%s);", fmtbuf, argbuf);
         if (toadd != 0) {
             fprintf(rec_file, "\n");
             EMIT(indent, "indent += %d;", toadd);
