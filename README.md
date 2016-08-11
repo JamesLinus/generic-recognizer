@@ -173,6 +173,16 @@ The following example uses the label generation capabilities:
               stmt "else" {{ "B " *2 ; *1 }}
               stmt {{ *2 }} ;
 
+## Backtracking
+
+Full backtracking is generally too inefficient to be used in practice. The recognizer
+supports instead a form of backtracking (_selective_ backtracking) where the user
+explicity specifies those places where backtracking should be used. Backtracking is
+introduced with `[[]]`. See [grammar11.ebnf](examples/grammar11.ebnf) for an example
+of usage.
+
+Note: currently backtracking is not implemented for recognizers generated with `-g`.
+
 ## Limitations
 
  - Sets are represented internally with `uint64_t` bit vectors. This limits the
