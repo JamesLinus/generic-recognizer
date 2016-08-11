@@ -7,6 +7,7 @@
 #include "util.h"
 
 typedef struct Keyword Keyword;
+typedef struct LexState LexState;
 
 static int lineno = 1;
 static char *buf, *curr;
@@ -15,6 +16,33 @@ static char token_string[MAX_TOKSTR_LEN];
 const char *lex_token_string(void)
 {
     return token_string;
+}
+
+struct LexState {
+    int lineno;
+    char *curr;
+    char token_string[MAX_TOKSTR_LEN];
+};
+
+void *lex_get_state(void)
+{
+    LexState *s;
+
+    s = malloc(sizeof(*s));
+    s->lineno = lineno;
+    s->curr = curr;
+    strcpy(s->token_string, token_string);
+    return s;
+}
+
+void lex_set_state(void *state)
+{
+    LexState *s;
+
+    s = state;
+    lineno = s->lineno;
+    curr = s->curr;
+    strcpy(token_string, s->token_string);
 }
 
 enum {
@@ -159,13 +187,13 @@ int lex_get_token(void)
     int save, cindx;
     char *str_begin;
     int str_line;
-    static int eof_reached = 0;
 
-    if (eof_reached)
+    if (*curr == '\0')
         return TOK_EOF;
 
     cindx = 0;
     state = START;
+    token_string[0] = '\0';
     while (1) {
         int c;
 
@@ -197,7 +225,7 @@ int lex_get_token(void)
             } else {
                 switch (c) {
                 case '\0':
-                    eof_reached = 1;
+                    --curr;
                     return TOK_EOF;
                 case '(': return TOK_LPAREN;
                 case ')': return TOK_RPAREN;
@@ -211,8 +239,6 @@ int lex_get_token(void)
                 case ';': return TOK_SEMI;
                 case '.': return TOK_DOT;
                 case '|': return TOK_VBAR;
-                case '[': return TOK_LBRACKET;
-                case ']': return TOK_RBRACKET;
                 case '$': return TOK_DOLLAR;
                 case '^': return TOK_CARET;
                 case '>':
@@ -239,6 +265,18 @@ int lex_get_token(void)
                         return TOK_RBRACE2;
                     }
                     return TOK_RBRACE;
+                case '[':
+                    if (*curr == '[') {
+                        ++curr;
+                        return TOK_LBRACKET2;
+                    }
+                    return TOK_LBRACKET;
+                case ']':
+                    if (*curr == ']') {
+                        ++curr;
+                        return TOK_RBRACKET2;
+                    }
+                    return TOK_RBRACKET;
                 case ':':
                     if (*curr == '=') {
                         ++curr;

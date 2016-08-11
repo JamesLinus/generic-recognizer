@@ -1,5 +1,7 @@
+#include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 unsigned hash(char *s)
 {
@@ -26,4 +28,64 @@ char *read_file(char *path)
     buf[len] = '\0';
     fclose(fp);
     return buf;
+}
+
+struct StrBuf {
+    char *buf;
+    int siz, pos;
+};
+
+int strbuf_get_pos(StrBuf *sbuf)
+{
+    return sbuf->pos;
+}
+
+void strbuf_set_pos(StrBuf *sbuf, int pos)
+{
+    sbuf->pos = pos;
+}
+
+StrBuf *strbuf_new(int n)
+{
+    StrBuf *sbuf;
+
+    sbuf = malloc(sizeof(*sbuf));
+    sbuf->buf = malloc(n);
+    sbuf->siz = n;
+    sbuf->pos = 0;
+    return sbuf;
+}
+
+void strbuf_destroy(StrBuf *sbuf)
+{
+    free(sbuf->buf);
+    free(sbuf);
+}
+
+int strbuf_printf(StrBuf *sbuf, char *fmt, ...)
+{
+    int a, n;
+	va_list ap;
+
+	va_start(ap, fmt);
+    a = sbuf->siz-sbuf->pos;
+    if ((n=vsnprintf(sbuf->buf+sbuf->pos, a, fmt, ap)) >= a) {
+        sbuf->siz = sbuf->siz*2+n;
+        if ((sbuf->buf=realloc(sbuf->buf, sbuf->siz)) == NULL) {
+            fprintf(stderr, "Out of memory");
+            exit(EXIT_FAILURE);
+        }
+        va_end(ap);
+        va_start(ap, fmt);
+        vsprintf(sbuf->buf+sbuf->pos, fmt, ap);
+    }
+    sbuf->pos += n;
+	va_end(ap);
+    return n;
+}
+
+void strbuf_flush(StrBuf *sbuf)
+{
+    fwrite(sbuf->buf, 1, sbuf->pos, stdout);
+    sbuf->pos = 0;
 }

@@ -11,4 +11,12 @@
 unsigned hash(char *s);
 char *read_file(char *path);
 
+typedef struct StrBuf StrBuf;
+StrBuf *strbuf_new(int n);
+void strbuf_destroy(StrBuf *sbuf);
+int strbuf_printf(StrBuf *sbuf, char *fmt, ...);
+void strbuf_flush(StrBuf *sbuf);
+int strbuf_get_pos(StrBuf *sbuf);
+void strbuf_set_pos(StrBuf *sbuf, int pos);
+
 #endif

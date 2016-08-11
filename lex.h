@@ -8,6 +8,8 @@ int lex_get_token(void);
 int lex_finish(void);
 int lex_lineno(void);
 const char *lex_token_string(void);
+void *lex_get_state(void);
+void lex_set_state(void *state);
 
 int lex_name2num(const char *name); /* e.g. "PLUS" -> 1 */
 int lex_str2num(const char *str);   /* e.g. "+" -> 1 */

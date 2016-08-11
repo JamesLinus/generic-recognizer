@@ -132,10 +132,8 @@ for a stack machine:
     DIV
     ADD
 
-Output constructs are introduced with `{{}}`. These constructs need to be
-attached (concatenated) to something (before or after depending on when you
-want the output to be emitted). The output is line-oriented, meaning that a
-new-line character is emitted after each construct. One or more of the following
+Output constructs are introduced with `{{}}`. The output is line-oriented, meaning
+that a new-line character is emitted after each construct. One or more of the following
 things can appear between the `{{}}`:
 
  - A double-quoted string (e.g. `"ADD"`) to output text verbatim.
