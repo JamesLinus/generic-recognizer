@@ -10,8 +10,10 @@ factor = #ID
        | "[" expr "]"
        | "<" "#" #ID ":" #ID ">"
        | "[[" expr "]]"
-       | output ;
+       | output
+       | control ;
 output = "{{" outexpr { outexpr } "}}" ;
 outexpr = #STR2 | "*" [ #NUM ] | ";" | "+" | "-" ;
+control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 
 .

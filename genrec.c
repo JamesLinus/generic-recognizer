@@ -14,8 +14,10 @@
            | "<" "#" ID ":" ID ">"
            | "[[" expr "]]"
            | output ;
+           | control ;
     output = "{{" outexpr { outexpr } "}}" ;
     outexpr = STR | "*" [ NUM ] | ID | ";" | "+" | "-" ;
+    control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,11 +39,20 @@
 #define GRA_SYN_ERR     1
 #define STR_ERR         2
 #define MAX_NAM_TOK     64
+#define MAX_SAVE_STACK  16
+#define DIE(...)                            \
+    do {                                    \
+        fprintf(stderr, "%s: ", prog_name); \
+        fprintf(stderr, __VA_ARGS__);       \
+        fprintf(stderr, "\n");              \
+        exit(EXIT_FAILURE);                 \
+    } while (0)
 
 typedef struct Node Node;
 typedef struct NodeChain NodeChain;
 typedef struct OutList OutList;
 typedef struct FixUp FixUp;
+typedef struct InState InState;
 typedef struct State State;
 
 typedef enum {
@@ -68,6 +79,7 @@ typedef enum {
     TOK_STAR,
     TOK_PLUS,
     TOK_MINUS,
+    TOK_DOLLAR,
     TOK_ALTER,      /* | */
     TOK_ALTER_BT,   /* [[ | ]] */
     TOK_CONCAT,     /*   */
@@ -82,19 +94,12 @@ static Token grammar_curr_tok;
 #define LA grammar_curr_tok
 static int line_number = 1;
 static int verbose;
-static int curr_tok;
-static char last_tokstr_buf[MAX_TOKSTR_LEN];
-static int out_indent;
-static int ver_indent;
-static int out_atbeg = TRUE;
-static FILE *rec_file;
-static StrBuf *outbuf;
-
-static int label_counter = 1;
 #define USES_LAB1 0x01
 #define USES_LAB2 0x02
 static char label_usage[MAX_RULES];
 static int uses_lab1, uses_lab2;
+static FILE *rec_file;
+static StrBuf *outbuf;
 
 enum {
     O_LAST, O_LAB1, O_LAB2, O_END, O_INC, O_DEC, O_VER, O_TN,
@@ -111,11 +116,16 @@ static struct FixUp {
     FixUp *next;
 } *fixup_list;
 
+enum {
+    CTRL_PUSH, CTRL_POP, CTRL_EOUT, CTRL_DOUT,
+};
+
 typedef enum {
     TermKind,
     NonTermKind,
     OpKind,
     OutKind,
+    CtrlKind,
 } NodeKind;
 
 static struct Node {
@@ -131,6 +141,7 @@ static struct Node {
             Node *child[2];
         } op;
         OutList *out_list;
+        int action;
     } attr;
     uint64_t first, follow;
 } *rules[MAX_RULES];
@@ -148,45 +159,43 @@ static struct {
 } named_tokens[MAX_NAM_TOK];
 static int named_tokens_counter;
 
-struct State {
-    void *lex;
-    int curr_tok;
-    int out_pos;
-    int out_indent;
-    int ver_indent;
-    int out_atbeg;
-    char last[MAX_TOKSTR_LEN];
-    int label_counter;
+static struct State {
+    struct InState {
+        int token;
+        void *lex;
+        char last[MAX_TOKSTR_LEN];
+    } input;
+    int outpos;
+    int outind;
+    int verind;
+    int atbeg;
+    int labcnt;
+    int outputting;
+    int savetop;
     /*char (*named_tokens)[MAX_TOKSTR_LEN];*/
-};
+} state;
+#define curr_tok (state.input.token)
+#define last_str (state.input.last)
+
+static InState save_stack[MAX_SAVE_STACK]; /* $push/$pop stack */
 
 static void save_state(State *st)
 {
-    st->lex = lex_get_state();
-    st->curr_tok = curr_tok;
-    st->out_pos = strbuf_get_pos(outbuf);
-    st->out_indent = out_indent;
-    st->ver_indent = ver_indent;
-    st->out_atbeg = out_atbeg;
-    strcpy(st->last, last_tokstr_buf);
-    st->label_counter = label_counter;
+    state.outpos = strbuf_get_pos(outbuf);
+    state.input.lex = lex_get_state();
+    *st = state;
 }
 
 static void restore_state(State *st)
 {
-    lex_set_state(st->lex);
-    curr_tok = st->curr_tok;
-    strbuf_set_pos(outbuf, st->out_pos);
-    out_indent = st->out_indent;
-    ver_indent = st->ver_indent;
-    out_atbeg = st->out_atbeg;
-    strcpy(last_tokstr_buf, st->last);
-    label_counter = st->label_counter;
+    state = *st;
+    strbuf_set_pos(outbuf, state.outpos);
+    lex_set_state(state.input.lex);
 }
 
 static void dispose_state(State *st)
 {
-    free(st->lex);
+    free(st->input.lex);
 }
 
 static struct NodeChain {
@@ -333,6 +342,7 @@ static Token get_token(void)
                 case '<': tok = TOK_LANGLE; break;
                 case '>': tok = TOK_RANGLE; break;
                 case ':': tok = TOK_COLON;  break;
+                case '$': tok = TOK_DOLLAR; break;
                 default:
                     save = FALSE;
                     state = START;
@@ -453,7 +463,8 @@ static int new_named_token(char *name)
 {
     int i;
 
-    assert(named_tokens_counter < MAX_NAM_TOK);
+    if (named_tokens_counter >= MAX_NAM_TOK)
+        err(1, GRA_ERR, "too many named tokens");
     for (i = 0; i < named_tokens_counter; i++)
         if (strcmp(named_tokens[i].name, name) == 0)
             err(1, GRA_SYN_ERR, "named token `%s' redefined", name);
@@ -475,8 +486,10 @@ static Node *expr(int bt);
            | "<" "#" ID ":" ID ">"
            | "[[" expr "]]"
            | output ;
+           | control ;
     output = "{{" outexpr { outexpr } "}}" ;
     outexpr = STR | "*" [ NUM ] | ID | ";" | "+" | "-" ;
+    control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 */
 static Node *factor(void)
 {
@@ -615,6 +628,26 @@ static Node *factor(void)
         n = expr(TRUE);
         match(TOK_RBRACKET2);
         break;
+    case TOK_DOLLAR:
+        match(TOK_DOLLAR);
+        if (LA == TOK_ID) {
+            int action;
+
+            if (strcmp(token_string, "push") == 0)
+                action = CTRL_PUSH;
+            else if (strcmp(token_string, "pop") == 0)
+                action = CTRL_POP;
+            else if (strcmp(token_string, "eout") == 0)
+                action = CTRL_EOUT;
+            else if (strcmp(token_string, "dout") == 0)
+                action = CTRL_DOUT;
+            else
+                err(1, GRA_SYN_ERR, "unknown action `%s'", token_string);
+            n = new_node(CtrlKind);
+            n->attr.action = action;
+        }
+        match(TOK_ID);
+        break;
     default:
         match(-1);
         break;
@@ -630,7 +663,8 @@ static Node *term(void)
     n = factor();
     while (LA==TOK_ID || LA==TOK_HASH || LA==TOK_STR
     || LA==TOK_LPAREN || LA==TOK_LBRACE || LA==TOK_LBRACKET
-    || LA==TOK_LBRACE2 || LA==TOK_LANGLE || LA==TOK_LBRACKET2) {
+    || LA==TOK_LBRACE2 || LA==TOK_LANGLE || LA==TOK_LBRACKET2
+    || LA==TOK_DOLLAR) {
         q = new_node(OpKind);
         q->attr.op.tok = TOK_CONCAT;
         q->attr.op.child[0] = n;
@@ -723,6 +757,7 @@ static uint64_t first(Node *n)
         return n->first;
     switch (n->kind) {
     case OutKind:
+    case CtrlKind:
         n->first = EMPTY;
         break;
     case TermKind:
@@ -759,6 +794,7 @@ static void compute_follow(Node *n, uint64_t in)
 
     switch (n->kind) {
     case OutKind:
+    case CtrlKind:
         break;
     case TermKind:
         break;
@@ -841,6 +877,7 @@ static void check_for_left_rec(uint64_t rule_msk, Node *n)
 {
     switch (n->kind) {
     case OutKind:
+    case CtrlKind:
         break;
     case TermKind:
         break;
@@ -889,38 +926,40 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
     case OutKind: {
         OutList *t;
 
+        if (!state.outputting)
+            return TRUE;
         for (t = n->attr.out_list; t != NULL; t = t->next) {
             switch (t->kind) {
             case O_LAST:
-                strbuf_printf(outbuf, "%*s%s", (out_atbeg && out_indent>0)?out_indent:0, "", last_tokstr_buf);
-                out_atbeg = FALSE;
+                strbuf_printf(outbuf, "%*s%s", (state.atbeg && state.outind>0)?state.outind:0, "", last_str);
+                state.atbeg = FALSE;
                 break;
             case O_LAB1:
                 if (*lab1 == -1)
-                    *lab1 = label_counter++;
-                strbuf_printf(outbuf, "%*sL%d", (out_atbeg && out_indent>0)?out_indent:0, "", *lab1);
-                out_atbeg = FALSE;
+                    *lab1 = state.labcnt++;
+                strbuf_printf(outbuf, "%*sL%d", (state.atbeg && state.outind>0)?state.outind:0, "", *lab1);
+                state.atbeg = FALSE;
                 break;
             case O_LAB2:
                 if (*lab2 == -1)
-                    *lab2 = label_counter++;
-                strbuf_printf(outbuf, "%*sL%d", (out_atbeg && out_indent>0)?out_indent:0, "", *lab2);
-                out_atbeg = FALSE;
+                    *lab2 = state.labcnt++;
+                strbuf_printf(outbuf, "%*sL%d", (state.atbeg && state.outind>0)?state.outind:0, "", *lab2);
+                state.atbeg = FALSE;
                 break;
             case O_INC:
-                out_indent += 4;
+                state.outind += 4;
                 break;
             case O_DEC:
-                out_indent -= 4;
+                state.outind -= 4;
                 break;
             case O_END:
                 strbuf_printf(outbuf, "\n");
-                out_atbeg = TRUE;
+                state.atbeg = TRUE;
                 break;
             case O_TN:
             case O_VER:
-                strbuf_printf(outbuf, "%*s%s", (out_atbeg && out_indent>0)?out_indent:0, "", t->val);
-                out_atbeg = FALSE;
+                strbuf_printf(outbuf, "%*s%s", (state.atbeg && state.outind>0)?state.outind:0, "", t->val);
+                state.atbeg = FALSE;
                 break;
             }
         }
@@ -928,6 +967,30 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
             strbuf_flush(outbuf);
         res = TRUE;
     }
+        break;
+    case CtrlKind:
+        switch (n->attr.action) {
+        case CTRL_PUSH:
+            if (state.savetop >= MAX_SAVE_STACK)
+                DIE("$push: stack overflow!");
+            state.input.lex = lex_get_state();
+            save_stack[state.savetop++] = state.input;
+            break;
+        case CTRL_POP:
+            if (state.savetop <= 0)
+                DIE("$pop: stack underflow!");
+            state.input = save_stack[--state.savetop];
+            lex_set_state(state.input.lex);
+            free(state.input.lex);
+            break;
+        case CTRL_EOUT:
+            state.outputting = TRUE;
+            break;
+        case CTRL_DOUT:
+            state.outputting = FALSE;
+            break;
+        }
+        res = TRUE;
         break;
     case TermKind:
         if (curr_tok != n->attr.t.tok_num) {
@@ -938,13 +1001,13 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
             if (verbose) {
                 int i;
 
-                for (i = ver_indent; i; i--)
+                for (i = state.verind; i; i--)
                     printf("--");
                 printf("<< matched `%s' (%s:%d)\n", lex_num2print(curr_tok), string_file_path, lex_lineno());
             }
-            strcpy(last_tokstr_buf, lex_token_string());
+            strcpy(last_str, lex_token_string());
             if (n->attr.t.slot >= 0)
-                strcpy(named_tokens[n->attr.t.slot].tokstr, last_tokstr_buf);
+                strcpy(named_tokens[n->attr.t.slot].tokstr, last_str);
             curr_tok = lex_get_token();
             res = TRUE;
         }
@@ -955,14 +1018,14 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
         if (verbose) {
             int i;
 
-            for (i = ver_indent; i; i--)
+            for (i = state.verind; i; i--)
                 printf("--");
             printf(">> replacing `%s' (%s:%d)\n", rule_names[n->attr.rule_num], string_file_path, lex_lineno());
         }
-        ++ver_indent;
+        ++state.verind;
         _lab1 = _lab2 = -1;
         res = recognize(rules[n->attr.rule_num], &_lab1, &_lab2, bt);
-        --ver_indent;
+        --state.verind;
     }
         break;
     case OpKind:
@@ -1397,14 +1460,12 @@ int main(int argc, char *argv[])
         }
         switch (argv[i][1]) {
         case 'o':
-            if (argv[i][2] != '\0') {
+            if (argv[i][2] != '\0')
                 outfile = argv[i]+2;
-            } else if (argv[i+1] != NULL) {
+            else if (argv[i+1] != NULL)
                 outfile = argv[++i];
-            } else {
-                fprintf(stderr, "%s: missing argument for -o option\n", prog_name);
-                exit(EXIT_FAILURE);
-            }
+            else
+                DIE("missing argument for -o option");
             break;
         case 'f':
             print_first = TRUE;
@@ -1433,18 +1494,15 @@ int main(int argc, char *argv[])
                    "  -h: print this help\n");
             exit(EXIT_SUCCESS);
         default:
-            fprintf(stderr, "%s: unknown option `%s'\n", prog_name, argv[i]);
-            exit(EXIT_FAILURE);
+            DIE("unknown option `%s'", argv[i]);
         }
     }
     if (grammar_file_path==NULL
     || (string_file_path==NULL && !print_first && !print_follow && !validate && !generate))
         usage(TRUE);
 
-    if ((grammar_buf=read_file(grammar_file_path)) == NULL) {
-        fprintf(stderr, "%s: cannot read file `%s'\n", prog_name, grammar_file_path);
-        exit(EXIT_FAILURE);
-    }
+    if ((grammar_buf=read_file(grammar_file_path)) == NULL)
+        DIE("cannot read file `%s'", grammar_file_path);
     curr_ch = grammar_buf;
     LA = get_token();
     grammar();
@@ -1486,15 +1544,18 @@ int main(int argc, char *argv[])
         int lab1, lab2;
 
         lab1 = lab2 = -1;
-        if (lex_init(string_file_path) == -1) {
-            fprintf(stderr, "%s: lex_init() failed!\n", prog_name);
-            exit(EXIT_FAILURE);
-        }
+        if (lex_init(string_file_path) == -1)
+            DIE("lex_init() failed!");
+
         outbuf = strbuf_new(256);
         curr_tok = lex_get_token();
+        state.atbeg = TRUE;
+        state.outputting = TRUE;
+        state.labcnt = 1;
+
         if (verbose) {
             printf(">> replacing `%s' (%s:%d)\n", rule_names[start_symbol], string_file_path, lex_lineno());
-            ++ver_indent;
+            ++state.verind;
         }
         recognize(rules[start_symbol], &lab1, &lab2, FALSE);
         strbuf_flush(outbuf);
