@@ -5,18 +5,17 @@
     rule = ID [ "*" ] "=" expr ";" ;
     expr = term { "|" term } ;
     term = factor { factor } ;
-    factor = ID
+    factor = ID [ ">" "$" ID ]
            | "#" ID
            | STR
            | "(" expr ")"
            | "{" expr "}"
            | "[" expr "]"
-           | "<" "#" ID ":" ID ">"
            | "[[" expr "]]"
            | output ;
            | control ;
     output = "{{" outexpr { outexpr } "}}" ;
-    outexpr = STR | "*" [ NUM ] | ID | ";" | "+" | "-" ;
+    outexpr = STR | "*" [ NUM ] | "$" ID | ";" | "+" | "-" ;
     control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 */
 #include <stdio.h>
@@ -38,8 +37,8 @@
 #define GRA_ERR         0
 #define GRA_SYN_ERR     1
 #define STR_ERR         2
-#define MAX_NAM_TOK     64
 #define MAX_SAVE_STACK  16
+#define MAX_NAM_BUF     32
 #define DIE(...)                            \
     do {                                    \
         fprintf(stderr, "%s: ", prog_name); \
@@ -51,7 +50,6 @@
 typedef struct Node Node;
 typedef struct NodeChain NodeChain;
 typedef struct OutList OutList;
-typedef struct FixUp FixUp;
 typedef struct InState InState;
 typedef struct State State;
 
@@ -102,7 +100,7 @@ static FILE *rec_file;
 static StrBuf *outbuf;
 
 enum {
-    O_LAST, O_LAB1, O_LAB2, O_END, O_INC, O_DEC, O_VER, O_TN,
+    O_LAST, O_LAB1, O_LAB2, O_END, O_INC, O_DEC, O_VER, O_BUF,
 };
 
 struct OutList {
@@ -110,11 +108,6 @@ struct OutList {
     char *val;
     OutList *next;
 };
-
-static struct FixUp {
-    char **p;
-    FixUp *next;
-} *fixup_list;
 
 enum {
     CTRL_PUSH, CTRL_POP, CTRL_EOUT, CTRL_DOUT,
@@ -132,10 +125,13 @@ static struct Node {
     NodeKind kind;
     union {
         struct {
-            int tok_num;
-            int slot;
-        } t;
-        int rule_num;
+            int num;
+            /*int slot;*/
+        } tok;
+        struct {
+            int num;
+            StrBuf *buf;
+        } rule;
         struct {
             Token tok;
             Node *child[2];
@@ -153,11 +149,6 @@ static uint64_t follows[MAX_RULES];
 static int follow_changed;
 static int have_follow;
 static uint64_t grammar_tokens;
-static struct {
-    char *name;
-    char *tokstr;
-} named_tokens[MAX_NAM_TOK];
-static int named_tokens_counter;
 
 static struct State {
     struct InState {
@@ -172,7 +163,6 @@ static struct State {
     int labcnt;
     int outputting;
     int savetop;
-    /*char (*named_tokens)[MAX_TOKSTR_LEN];*/
 } state;
 #define curr_tok (state.input.token)
 #define last_str (state.input.last)
@@ -459,36 +449,40 @@ static Node *new_node(NodeKind kind)
     return n;
 }
 
-static int new_named_token(char *name)
+static struct {
+    char *name;
+    StrBuf *buf;
+} named_buffers[MAX_NAM_BUF];
+static int nambuf_counter, rule_first_nambuf;
+
+static StrBuf *new_named_buffer(char *name)
 {
     int i;
 
-    if (named_tokens_counter >= MAX_NAM_TOK)
-        err(1, GRA_ERR, "too many named tokens");
-    for (i = 0; i < named_tokens_counter; i++)
-        if (strcmp(named_tokens[i].name, name) == 0)
-            err(1, GRA_SYN_ERR, "named token `%s' redefined", name);
-    named_tokens[i].name = strdup(name);
-    named_tokens[i].tokstr = malloc(MAX_TOKSTR_LEN);
-    named_tokens[i].tokstr[0] = '\0';
-    return named_tokens_counter++;
+    if (nambuf_counter >= MAX_NAM_BUF)
+        err(1, GRA_ERR, "too many named buffers (max: %d)", MAX_NAM_BUF);
+    for (i = rule_first_nambuf; i < nambuf_counter; i++)
+        if (strcmp(named_buffers[i].name, name) == 0)
+            return named_buffers[i].buf;
+    named_buffers[i].name = strdup(name);
+    nambuf_counter++;
+    return (named_buffers[i].buf = strbuf_new(64));
 }
 
 static Node *expr(int bt);
 
 /*
-    factor = ID
+    factor = ID [ ">" "$" ID ]
            | "#" ID
            | STR
            | "(" expr ")"
            | "{" expr "}"
            | "[" expr "]"
-           | "<" "#" ID ":" ID ">"
            | "[[" expr "]]"
            | output ;
            | control ;
     output = "{{" outexpr { outexpr } "}}" ;
-    outexpr = STR | "*" [ NUM ] | ID | ";" | "+" | "-" ;
+    outexpr = STR | "*" [ NUM ] | "$" ID | ";" | "+" | "-" ;
     control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 */
 static Node *factor(void)
@@ -498,27 +492,32 @@ static Node *factor(void)
     switch (LA) {
     case TOK_ID:
         n = new_node(NonTermKind);
-        n->attr.rule_num = lookup_rule(token_string, NULL);
+        n->attr.rule.num = lookup_rule(token_string, NULL);
         match(TOK_ID);
+        if (LA == TOK_RANGLE) {
+            match(TOK_RANGLE);
+            match(TOK_DOLLAR);
+            if (LA == TOK_ID)
+                n->attr.rule.buf = new_named_buffer(token_string);
+            match(TOK_ID);
+        }
         break;
     case TOK_HASH:
         match(TOK_HASH);
         if (LA == TOK_ID) {
             n = new_node(TermKind);
-            if ((n->attr.t.tok_num=lex_name2num(token_string)) == -1)
+            if ((n->attr.tok.num=lex_name2num(token_string)) == -1)
                 err(1, GRA_SYN_ERR, "unknown token name `%s'", token_string);
-            n->attr.t.slot = -1;
         }
         match(TOK_ID);
-        grammar_tokens |= 1ULL<<n->attr.t.tok_num;
+        grammar_tokens |= 1ULL<<n->attr.tok.num;
         break;
     case TOK_STR:
         n = new_node(TermKind);
-        if ((n->attr.t.tok_num=lex_str2num(token_string)) == -1)
+        if ((n->attr.tok.num=lex_str2num(token_string)) == -1)
             err(1, GRA_SYN_ERR, "unknown token spelling `%s'", token_string);
-        n->attr.t.slot = -1;
         match(TOK_STR);
-        grammar_tokens |= 1ULL<<n->attr.t.tok_num;
+        grammar_tokens |= 1ULL<<n->attr.tok.num;
         break;
     case TOK_LPAREN:
         match(TOK_LPAREN);
@@ -539,22 +538,6 @@ static Node *factor(void)
         n->attr.op.child[0] = expr(FALSE);
         match(TOK_RBRACKET);
         break;
-    case TOK_LANGLE:
-        match(TOK_LANGLE);
-        match(TOK_HASH);
-        if (LA == TOK_ID) {
-            n = new_node(TermKind);
-            if ((n->attr.t.tok_num=lex_name2num(token_string)) == -1)
-                err(1, GRA_SYN_ERR, "unknown token name `%s'", token_string);
-        }
-        match(TOK_ID);
-        grammar_tokens |= 1ULL<<n->attr.t.tok_num;
-        match(TOK_COLON);
-        if (LA == TOK_ID)
-            n->attr.t.slot = new_named_token(token_string);
-        match(TOK_ID);
-        match(TOK_RANGLE);
-        break;
     case TOK_LBRACE2: {
         OutList h, *t;
 
@@ -563,7 +546,7 @@ static Node *factor(void)
         t = &h;
         goto first;
         while (LA==TOK_STR || LA==TOK_STAR || LA==TOK_SEMI
-        || LA==TOK_PLUS || LA==TOK_MINUS || LA==TOK_ID) {
+        || LA==TOK_PLUS || LA==TOK_MINUS || LA==TOK_DOLLAR) {
     first:  t->next = malloc(sizeof(*t));
             t = t->next;
             switch (LA) {
@@ -592,18 +575,6 @@ static Node *factor(void)
                     t->kind = O_LAST;
                 }
                 break;
-            case TOK_ID: {
-                FixUp *fx;
-
-                t->kind = O_TN;
-                t->val = strdup(token_string);
-                match(TOK_ID);
-                fx = malloc(sizeof(*fx));
-                fx->p = &t->val;
-                fx->next = fixup_list;
-                fixup_list = fx;
-            }
-                break;
             case TOK_PLUS:
                 t->kind = O_INC;
                 match(TOK_PLUS);
@@ -611,6 +582,21 @@ static Node *factor(void)
             case TOK_MINUS:
                 t->kind = O_DEC;
                 match(TOK_MINUS);
+                break;
+            case TOK_DOLLAR:
+                t->kind = O_BUF;
+                match(TOK_DOLLAR);
+                if (LA == TOK_ID) {
+                    int i;
+
+                    for (i = rule_first_nambuf; i < nambuf_counter; i++)
+                        if (strcmp(named_buffers[i].name, token_string) == 0)
+                            break;
+                    if (i >= nambuf_counter)
+                        err(1, GRA_SYN_ERR, "undefined buffer `%s'", token_string);
+                    t->val = (char *)named_buffers[i].buf;
+                }
+                match(TOK_ID);
                 break;
             default:
                 match(TOK_SEMI);
@@ -663,8 +649,7 @@ static Node *term(void)
     n = factor();
     while (LA==TOK_ID || LA==TOK_HASH || LA==TOK_STR
     || LA==TOK_LPAREN || LA==TOK_LBRACE || LA==TOK_LBRACKET
-    || LA==TOK_LBRACE2 || LA==TOK_LANGLE || LA==TOK_LBRACKET2
-    || LA==TOK_DOLLAR) {
+    || LA==TOK_LBRACE2 || LA==TOK_LBRACKET2 || LA==TOK_DOLLAR) {
         q = new_node(OpKind);
         q->attr.op.tok = TOK_CONCAT;
         q->attr.op.child[0] = n;
@@ -707,6 +692,7 @@ static void rule(void)
         is_start = TRUE;
     }
     match(TOK_EQ);
+    rule_first_nambuf = nambuf_counter;
     n = expr(FALSE);
     match(TOK_SEMI);
     if (is_start) {
@@ -727,28 +713,10 @@ static void rule(void)
 /* grammar = rule { rule } "." */
 static void grammar(void)
 {
-    FixUp *fx, *next;
-
     rule();
     while (LA != TOK_DOT)
         rule();
     match(TOK_DOT);
-
-    for (fx = fixup_list; fx != NULL; fx = next) {
-        int i;
-        char *name;
-
-        name = *fx->p;
-        for (i = 0; i < named_tokens_counter; i++)
-            if (strcmp(named_tokens[i].name, name) == 0)
-                break;
-        if (i >= named_tokens_counter)
-            err(1, GRA_ERR, "named token `%s' referenced but never defined", name);
-        *fx->p = named_tokens[i].tokstr;
-        next = fx->next;
-        free(fx);
-        free(name);
-    }
 }
 
 static uint64_t first(Node *n)
@@ -761,10 +729,10 @@ static uint64_t first(Node *n)
         n->first = EMPTY;
         break;
     case TermKind:
-        n->first = 1ULL<<n->attr.t.tok_num;
+        n->first = 1ULL<<n->attr.tok.num;
         break;
     case NonTermKind:
-        n->first = first(rules[n->attr.rule_num]);
+        n->first = first(rules[n->attr.rule.num]);
         break;
     case OpKind:
         switch (n->attr.op.tok) {
@@ -799,9 +767,9 @@ static void compute_follow(Node *n, uint64_t in)
     case TermKind:
         break;
     case NonTermKind:
-        if ((in & ~follows[n->attr.rule_num]) != EMPTY_SET) {
+        if ((in & ~follows[n->attr.rule.num]) != EMPTY_SET) {
             follow_changed = TRUE;
-            follows[n->attr.rule_num] |= in;
+            follows[n->attr.rule.num] |= in;
         }
         break;
     case OpKind:
@@ -882,9 +850,9 @@ static void check_for_left_rec(uint64_t rule_msk, Node *n)
     case TermKind:
         break;
     case NonTermKind:
-        if (rule_msk & (1ULL<<n->attr.rule_num))
-            err(1, GRA_ERR, "rule `%s' contains left-recursion", rule_names[n->attr.rule_num]);
-        check_for_left_rec(rule_msk|(1ULL<<n->attr.rule_num), rules[n->attr.rule_num]);
+        if (rule_msk & (1ULL<<n->attr.rule.num))
+            err(1, GRA_ERR, "rule `%s' contains left-recursion", rule_names[n->attr.rule.num]);
+        check_for_left_rec(rule_msk|(1ULL<<n->attr.rule.num), rules[n->attr.rule.num]);
         break;
     case OpKind:
         switch (n->attr.op.tok) {
@@ -918,7 +886,7 @@ static void conflicts(void)
         conflict(rules[i], i);
 }
 
-static int recognize(Node *n, int *lab1, int *lab2, int bt)
+static int recognize(Node *n, int *lab1, int *lab2, int bt, StrBuf *buf)
 {
     int res;
 
@@ -931,19 +899,19 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
         for (t = n->attr.out_list; t != NULL; t = t->next) {
             switch (t->kind) {
             case O_LAST:
-                strbuf_printf(outbuf, "%*s%s", (state.atbeg && state.outind>0)?state.outind:0, "", last_str);
+                strbuf_printf(buf, "%*s%s", (state.atbeg && state.outind>0)?state.outind:0, "", last_str);
                 state.atbeg = FALSE;
                 break;
             case O_LAB1:
                 if (*lab1 == -1)
                     *lab1 = state.labcnt++;
-                strbuf_printf(outbuf, "%*sL%d", (state.atbeg && state.outind>0)?state.outind:0, "", *lab1);
+                strbuf_printf(buf, "%*sL%d", (state.atbeg && state.outind>0)?state.outind:0, "", *lab1);
                 state.atbeg = FALSE;
                 break;
             case O_LAB2:
                 if (*lab2 == -1)
                     *lab2 = state.labcnt++;
-                strbuf_printf(outbuf, "%*sL%d", (state.atbeg && state.outind>0)?state.outind:0, "", *lab2);
+                strbuf_printf(buf, "%*sL%d", (state.atbeg && state.outind>0)?state.outind:0, "", *lab2);
                 state.atbeg = FALSE;
                 break;
             case O_INC:
@@ -953,18 +921,27 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
                 state.outind -= 4;
                 break;
             case O_END:
-                strbuf_printf(outbuf, "\n");
+                strbuf_printf(buf, "\n");
                 state.atbeg = TRUE;
                 break;
-            case O_TN:
+            case O_BUF: {
+                char *s;
+                int len;
+
+                s = strbuf_str((StrBuf *)t->val);
+                len = strbuf_length((StrBuf *)t->val);
+                strbuf_printf(buf, "%*s%s", (state.atbeg && state.outind>0)?state.outind:0, "", s);
+                state.atbeg = (len>0 && s[len-1]=='\n');
+            }
+                break;
             case O_VER:
-                strbuf_printf(outbuf, "%*s%s", (state.atbeg && state.outind>0)?state.outind:0, "", t->val);
+                strbuf_printf(buf, "%*s%s", (state.atbeg && state.outind>0)?state.outind:0, "", t->val);
                 state.atbeg = FALSE;
                 break;
             }
         }
-        if (!bt)
-            strbuf_flush(outbuf);
+        if (!bt && buf==outbuf)
+            strbuf_flush(buf);
         res = TRUE;
     }
         break;
@@ -993,7 +970,7 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
         res = TRUE;
         break;
     case TermKind:
-        if (curr_tok != n->attr.t.tok_num) {
+        if (curr_tok != n->attr.tok.num) {
             if (!bt)
                 err(1, STR_ERR, "unexpected `%s'", lex_num2print(curr_tok));
             res = FALSE;
@@ -1006,8 +983,6 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
                 printf("<< matched `%s' (%s:%d)\n", lex_num2print(curr_tok), string_file_path, lex_lineno());
             }
             strcpy(last_str, lex_token_string());
-            if (n->attr.t.slot >= 0)
-                strcpy(named_tokens[n->attr.t.slot].tokstr, last_str);
             curr_tok = lex_get_token();
             res = TRUE;
         }
@@ -1020,11 +995,15 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
 
             for (i = state.verind; i; i--)
                 printf("--");
-            printf(">> replacing `%s' (%s:%d)\n", rule_names[n->attr.rule_num], string_file_path, lex_lineno());
+            printf(">> replacing `%s' (%s:%d)\n", rule_names[n->attr.rule.num], string_file_path, lex_lineno());
         }
         ++state.verind;
         _lab1 = _lab2 = -1;
-        res = recognize(rules[n->attr.rule_num], &_lab1, &_lab2, bt);
+        if (n->attr.rule.buf != NULL) {
+            buf = n->attr.rule.buf;
+            strbuf_clear(buf);
+        }
+        res = recognize(rules[n->attr.rule.num], &_lab1, &_lab2, bt, buf);
         --state.verind;
     }
         break;
@@ -1032,9 +1011,9 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
         switch (n->attr.op.tok) {
         case TOK_ALTER:      /* | */
             if (first(n->attr.op.child[0]) & (1ULL<<curr_tok))
-                res = recognize(n->attr.op.child[0], lab1, lab2, bt);
+                res = recognize(n->attr.op.child[0], lab1, lab2, bt, buf);
             else
-                res = recognize(n->attr.op.child[1], lab1, lab2, bt);
+                res = recognize(n->attr.op.child[1], lab1, lab2, bt, buf);
             break;
         case TOK_ALTER_BT: { /* [[ | ]] */
             State st;
@@ -1042,26 +1021,26 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt)
             res = FALSE;
             save_state(&st);
             if ((first(n->attr.op.child[0]) & (1ULL<<curr_tok))
-            && !(res=recognize(n->attr.op.child[0], lab1, lab2, TRUE)))
+            && !(res=recognize(n->attr.op.child[0], lab1, lab2, TRUE, buf)))
                 restore_state(&st);
-            if (!res && !(res=recognize(n->attr.op.child[1], lab1, lab2, bt)))
+            if (!res && !(res=recognize(n->attr.op.child[1], lab1, lab2, bt, buf)))
                 restore_state(&st);
             dispose_state(&st);
         }
             break;
         case TOK_CONCAT:     /*   */
-            if (res = recognize(n->attr.op.child[0], lab1, lab2, bt))
-                res = recognize(n->attr.op.child[1], lab1, lab2, bt);
+            if (res = recognize(n->attr.op.child[0], lab1, lab2, bt, buf))
+                res = recognize(n->attr.op.child[1], lab1, lab2, bt, buf);
             break;
         case TOK_REPET:      /* {} */
             res = TRUE;
             while (res && (first(n->attr.op.child[0]) & (1ULL<<curr_tok)))
-                res = recognize(n->attr.op.child[0], lab1, lab2, bt);
+                res = recognize(n->attr.op.child[0], lab1, lab2, bt, buf);
             break;
         case TOK_OPTION:     /* [] */
             res = TRUE;
             if (first(n->attr.op.child[0]) & (1ULL<<curr_tok))
-                res = recognize(n->attr.op.child[0], lab1, lab2, bt);
+                res = recognize(n->attr.op.child[0], lab1, lab2, bt, buf);
             break;
         }
         break;
@@ -1187,18 +1166,8 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
                 *x = *y;
             }
                 break;
-            case O_TN: {
-                int i;
-                char x[32];
-
-                strcat(fmtbuf, "%s");
-                for (i = 0; i < named_tokens_counter; i++)
-                    if (named_tokens[i].tokstr == t->val)
-                        break;
-                assert(i < named_tokens_counter);
-                sprintf(x, ", named_tokens[%d]", i);
-                strcat(argbuf, x);
-            }
+            case O_BUF:
+                DIE("not implemented: -g and >$buffer");
                 break;
             }
         }
@@ -1215,16 +1184,19 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
         }
     }
         break;
+    case CtrlKind:
+        DIE("not implemented: -g and $action");
+        break;
     case TermKind:
         if (in_alter) {
             if (in_else)
-                fprintf(rec_file, "if (LA(T_%s)) {\n", lex_num2name(n->attr.t.tok_num));
+                fprintf(rec_file, "if (LA(T_%s)) {\n", lex_num2name(n->attr.tok.num));
             else
-                EMITLN(indent, "if (LA(T_%s)) {", lex_num2name(n->attr.t.tok_num));
-            EMITLN(indent+1, "match(T_%s, %d);", lex_num2name(n->attr.t.tok_num), n->attr.t.slot);
+                EMITLN(indent, "if (LA(T_%s)) {", lex_num2name(n->attr.tok.num));
+            EMITLN(indent+1, "match(T_%s);", lex_num2name(n->attr.tok.num));
             EMIT(indent, "}");
         } else {
-            EMIT(indent, "match(T_%s, %d);", lex_num2name(n->attr.t.tok_num), n->attr.t.slot);
+            EMIT(indent, "match(T_%s);", lex_num2name(n->attr.tok.num));
         }
         break;
     case NonTermKind:
@@ -1233,12 +1205,12 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
                 fprintf(rec_file, "if (");
             else
                 EMIT(indent, "if (");
-            write_first_test(first(rules[n->attr.rule_num]));
+            write_first_test(first(rules[n->attr.rule.num]));
             fprintf(rec_file, ") {\n");
-            EMITLN(indent+1, "%s();", rule_names[n->attr.rule_num]);
+            EMITLN(indent+1, "%s();", rule_names[n->attr.rule.num]);
             EMIT(indent, "}");
         } else {
-            EMIT(indent, "%s();", rule_names[n->attr.rule_num]);
+            EMIT(indent, "%s();", rule_names[n->attr.rule.num]);
         }
         break;
     case OpKind:
@@ -1255,7 +1227,7 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
             }
             break;
         case TOK_ALTER_BT:   /* [[ | ]] */
-            assert(!"TODO");
+            DIE("not implemented: -g and [[...]]");
             break;
         case TOK_CONCAT:     /*   */
             if (in_alter) {
@@ -1345,34 +1317,16 @@ static void generate_recognizer(void)
     "        *lab = label_counter++;\n"
     "    return *lab;\n"
     "}\n"
+    "static void match(int expected)\n"
+    "{\n"
+    "    if (curr_tok == expected) {\n"
+    "        strcpy(last_tokstr, lex_token_string());\n"
+    "        curr_tok = lex_get_token();\n"
+    "    } else {\n"
+    "        error();\n"
+    "    }\n"
+    "}\n"
     );
-    if (named_tokens_counter > 0) {
-        fprintf(rec_file,
-        "static char named_tokens[%d][MAX_TOKSTR_LEN];\n"
-        "static void match(int expected, int slot)\n"
-        "{\n"
-        "    if (curr_tok == expected) {\n"
-        "        strcpy(last_tokstr, lex_token_string());\n"
-        "        if (slot >= 0)\n"
-        "            strcpy(named_tokens[slot], last_tokstr);\n"
-        "        curr_tok = lex_get_token();\n"
-        "    } else {\n"
-        "        error();\n"
-        "    }\n"
-        "}\n", named_tokens_counter);
-    } else {
-        fprintf(rec_file,
-        "static void match(int expected, int slot)\n"
-        "{\n"
-        "    if (curr_tok == expected) {\n"
-        "        strcpy(last_tokstr, lex_token_string());\n"
-        "        curr_tok = lex_get_token();\n"
-        "    } else {\n"
-        "        error();\n"
-        "    }\n"
-        "}\n"
-        );
-    }
 
     for (i = 0; i < rule_counter; i++)
         EMITLN(0, "static void %s(void);", rule_names[i]);
@@ -1557,9 +1511,11 @@ int main(int argc, char *argv[])
             printf(">> replacing `%s' (%s:%d)\n", rule_names[start_symbol], string_file_path, lex_lineno());
             ++state.verind;
         }
-        recognize(rules[start_symbol], &lab1, &lab2, FALSE);
+        recognize(rules[start_symbol], &lab1, &lab2, FALSE, outbuf);
         strbuf_flush(outbuf);
         strbuf_destroy(outbuf);
+        for (i = 0; i < nambuf_counter; i++)
+            strbuf_destroy(named_buffers[i].buf);
         if (lex_finish() == -1)
             ;
     }

@@ -51,6 +51,7 @@ StrBuf *strbuf_new(int n)
 
     sbuf = malloc(sizeof(*sbuf));
     sbuf->buf = malloc(n);
+    sbuf->buf[0] = '\0';
     sbuf->siz = n;
     sbuf->pos = 0;
     return sbuf;
@@ -88,4 +89,19 @@ void strbuf_flush(StrBuf *sbuf)
 {
     fwrite(sbuf->buf, 1, sbuf->pos, stdout);
     sbuf->pos = 0;
+}
+
+void strbuf_clear(StrBuf *sbuf)
+{
+    sbuf->pos = 0;
+}
+
+char *strbuf_str(StrBuf *sbuf)
+{
+    return sbuf->buf;
+}
+
+int strbuf_length(StrBuf *sbuf)
+{
+    return sbuf->pos;
 }

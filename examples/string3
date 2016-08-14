@@ -2,18 +2,17 @@ grammar* = rule { rule } "." ;
 rule = #ID [ "*" ] "=" expr ";" ;
 expr = term { "|" term } ;
 term = factor { factor } ;
-factor = #ID
+factor = #ID [ ">" "$" #ID ]
        | "#" #ID
        | #STR2
        | "(" expr ")"
        | "{" expr "}"
        | "[" expr "]"
-       | "<" "#" #ID ":" #ID ">"
        | "[[" expr "]]"
        | output
        | control ;
 output = "{{" outexpr { outexpr } "}}" ;
-outexpr = #STR2 | "*" [ #NUM ] | ";" | "+" | "-" ;
+outexpr = #STR2 | "*" [ #NUM ] | "$" #ID | ";" | "+" | "-" ;
 control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 
 .
