@@ -1,0 +1,18 @@
+A1:
+movl $1024(%ebx, %ecx, $4), %eax
+A2:
+mov (%ebp, %edi, $2), %esi
+A3:
+movl $64(%eax, %esi,), %esp
+A4:
+mov (%edx, %eax,), %edi
+A5:
+movl $32(%ecx,,), %edx
+A6:
+mov $512(, %ebx, $4), %eax
+A7:
+movl (, %ebx, $8), %ecx
+A8:
+mov (%ebp,,), %esp
+A9:
+movl $4096(,,), %eax

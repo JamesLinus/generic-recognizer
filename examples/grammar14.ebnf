@@ -1,0 +1,46 @@
+!
+! Same as grammar13.ebnf but using backtracking.
+! The rules are a little more readable now.
+!
+program* = { line } ;
+
+line = [[ label | instr ]] {{ ; }} ;
+
+label = #ID {{ *":" }} ":" ;
+
+instr = mnemonic {{ " " }} operand>$op1 "," operand>$op2 {{ $op2", "$op1 }} ;
+
+mnemonic = mne_id>$mne ( "byte"   {{ $mne"b" }}
+                       | "word"   {{ $mne"w" }}
+                       | "dword"  {{ $mne"l" }}
+                       | {{ $mne }} ) ;
+
+mne_id = #ID {{ * }} ;
+
+operand = register
+        | "[" eff_addr "]"
+        | expr ;
+
+register = ( "eax"
+           | "ebx"
+           | "ecx"
+           | "edx"
+           | "esi"
+           | "edi"
+           | "esp"
+           | "ebp" ) {{ "%"* }} ;
+
+eff_addr = [[ register>$base "+" register>$index "*" expr>$scale "+" expr>$disp {{ $disp"("$base", "$index", "$scale")" }}
+            | register>$base "+" register>$index "*" expr>$scale                {{ "("$base", "$index", "$scale")" }}
+            | register>$base "+" register>$index "+" expr>$disp                 {{ $disp"("$base", "$index",)" }}
+            | register>$base "+" register>$index                                {{ "("$base", "$index",)" }}
+            | register>$base "+" expr>$disp                                     {{ $disp"("$base",,)" }}
+            | register>$index "*" expr>$scale "+" expr>$disp                    {{ $disp"(, "$index", "$scale")" }}
+            | register>$index "*" expr>$scale                                   {{ "(, "$index", "$scale")" }}
+            | register>$base                                                    {{ "("$base",,)" }}
+            | expr>$disp                                                        {{ $disp"(,,)" }}
+           ]] ;
+
+expr = #ID {{ * }} | #NUM {{ "$"* }} ;
+
+.

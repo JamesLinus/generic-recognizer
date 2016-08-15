@@ -1,0 +1,46 @@
+!
+! Converter from Intel to AT&T assembly syntax.
+!
+program* = { line } ;
+
+line = $push #ID ( ":" $pop label
+                 | $pop instr ) {{ ; }} ;
+
+label = #ID {{ *":" }} ":" ;
+
+instr = mnemonic {{ " " }} $push $dout operand "," $eout
+        operand {{ ", " }} $pop operand "," $dout operand $eout ;
+
+mnemonic = mne_id>$mne ( "byte"   {{ $mne"b" }}
+                       | "word"   {{ $mne"w" }}
+                       | "dword"  {{ $mne"l" }}
+                       | {{ $mne }} ) ;
+
+mne_id = #ID {{ * }} ;
+
+operand = register
+        | "[" eff_addr "]"
+        | expr ;
+
+register = ( "eax"
+           | "ebx"
+           | "ecx"
+           | "edx"
+           | "esi"
+           | "edi"
+           | "esp"
+           | "ebp" ) {{ "%"* }} ;
+
+eff_addr = register>$base ( "+" ( register>$index ( "*" expr>$scale ( "+" expr>$disp  {{ $disp"("$base", "$index", "$scale")" }}
+                                                                    | {{ "("$base", "$index", "$scale")" }} )
+                                                  | "+" expr>$disp {{ $disp"("$base", "$index",)" }}
+                                                  | {{ "("$base", "$index",)" }} )
+                                | expr>$disp {{ $disp"("$base",,)" }} )
+                          | "*" expr>$scale ( "+" expr>$disp {{ $disp"(, "$base", "$scale")" }}
+                                            | {{ "(, "$base", "$scale")" }} )
+                          | {{ "("$base",,)" }} )
+         | expr>$disp {{ $disp"(,,)" }} ;
+
+expr = #ID {{ * }} | #NUM {{ "$"* }} ;
+
+.
