@@ -20,7 +20,7 @@ factor = #ID [ ">" "$" #ID ]
        | output
        | control ;
 output = "{{" outexpr { outexpr } "}}" ;
-outexpr = #STR2 | "*" [ #NUM ] | "$" #ID | ";" | "+" | "-" ;
+outexpr = #STR2 | "*" | "#" | "$" #ID | ";" | "+" | "-" ;
 control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 
 .

@@ -145,10 +145,7 @@ can appear inside:
  - A double-quoted string (e.g. `"ADD"`) to output text verbatim.
  - A `;` to output a new-line character.
  - A `*` to output the last matched token.
- - A `*1` or `*2` to output a generated label of the form `L1, L2, ...`.
-   The first time `*1` appears in a production rule a label is generated
-   and outputted and this same label will be outputted wherever `*1` is
-   encountered again in the _same_ rule. Something similar happens for `*2`.
+ - A `#` to output a unique number. Each instance of a rule gets a new unique number.
  - `+` to increase the indentation level.
  - `-` to decrease the indentation level.
  - A named buffer as `$buffer_name` (explained below).
@@ -180,11 +177,11 @@ There are a few things to watch out when using named buffers:
  - Each instance of `rule>$buf` causes the truncation of `buf` (the writing
    position is set to zero) instead of appending to what it already contains.
 
-The following example uses the label generation capabilities:
+The following example uses `#` to generate unique labels:
 
-    if_stmt = "if" expr "then" {{ "BF " *1 ; }}
-              stmt "else" {{ "B " *2 ; *1 ; }}
-              stmt {{ *2 ; }} ;
+    if_stmt = "if" expr "then" {{ "BF " "A"# ; }}
+              stmt "else" {{ "B " "B"# ; "A"#":" ; }}
+              stmt {{ "B"#":" ; }} ;
 
 ## Backtracking
 

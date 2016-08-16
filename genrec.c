@@ -15,7 +15,7 @@
            | output ;
            | control ;
     output = "{{" outexpr { outexpr } "}}" ;
-    outexpr = STR | "*" [ NUM ] | "$" ID | ";" | "+" | "-" ;
+    outexpr = STR | "*" | "#" | "$" ID | ";" | "+" | "-" ;
     control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 */
 #include <stdio.h>
@@ -92,15 +92,19 @@ static Token grammar_curr_tok;
 #define LA grammar_curr_tok
 static int line_number = 1;
 static int verbose;
-#define USES_LAB1 0x01
-#define USES_LAB2 0x02
-static char label_usage[MAX_RULES];
-static int uses_lab1, uses_lab2;
+static int uses_gen;
+static int gen_usage[MAX_RULES];
 static FILE *rec_file;
 static StrBuf *outbuf;
 
 enum {
-    O_LAST, O_LAB1, O_LAB2, O_END, O_INC, O_DEC, O_VER, O_BUF,
+    O_LAST,
+    O_GEN,
+    O_END,
+    O_INC,
+    O_DEC,
+    O_VER,
+    O_BUF,
 };
 
 struct OutList {
@@ -110,7 +114,10 @@ struct OutList {
 };
 
 enum {
-    CTRL_PUSH, CTRL_POP, CTRL_EOUT, CTRL_DOUT,
+    CTRL_PUSH,
+    CTRL_POP,
+    CTRL_EOUT,
+    CTRL_DOUT,
 };
 
 typedef enum {
@@ -160,7 +167,7 @@ static struct State {
     int outind;
     int verind;
     int atbeg;
-    int labcnt;
+    int gencnt;
     int outputting;
     int savetop;
 } state;
@@ -482,7 +489,7 @@ static Node *expr(int bt);
            | output ;
            | control ;
     output = "{{" outexpr { outexpr } "}}" ;
-    outexpr = STR | "*" [ NUM ] | "$" ID | ";" | "+" | "-" ;
+    outexpr = STR | "*" | "#" | "$" ID | ";" | "+" | "-" ;
     control = "$" ( "push" | "pop" | "eout" | "dout" ) ;
 */
 static Node *factor(void)
@@ -546,7 +553,8 @@ static Node *factor(void)
         t = &h;
         goto first;
         while (LA==TOK_STR || LA==TOK_STAR || LA==TOK_SEMI
-        || LA==TOK_PLUS || LA==TOK_MINUS || LA==TOK_DOLLAR) {
+        || LA==TOK_PLUS || LA==TOK_MINUS || LA==TOK_DOLLAR
+        || LA==TOK_HASH) {
     first:  t->next = malloc(sizeof(*t));
             t = t->next;
             switch (LA) {
@@ -556,24 +564,13 @@ static Node *factor(void)
                 match(TOK_STR);
                 break;
             case TOK_STAR:
+                t->kind = O_LAST;
                 match(TOK_STAR);
-                if (LA == TOK_NUM) {
-                    switch (atoi(token_string)) {
-                    case 1:
-                        t->kind = O_LAB1;
-                        uses_lab1 = TRUE;
-                        break;
-                    case 2:
-                        t->kind = O_LAB2;
-                        uses_lab2 = TRUE;
-                        break;
-                    default:
-                        err(1, GRA_SYN_ERR, "`1' or `2' expected after `*'");
-                    }
-                    match(TOK_NUM);
-                } else {
-                    t->kind = O_LAST;
-                }
+                break;
+            case TOK_HASH:
+                t->kind = O_GEN;
+                uses_gen = TRUE;
+                match(TOK_HASH);
                 break;
             case TOK_PLUS:
                 t->kind = O_INC;
@@ -703,11 +700,8 @@ static void rule(void)
         num = lookup_rule(id, n);
     }
 
-    if (uses_lab1)
-        label_usage[num] |= USES_LAB1;
-    if (uses_lab2)
-        label_usage[num] |= USES_LAB2;
-    uses_lab1 = uses_lab2 = FALSE;
+    gen_usage[num] = uses_gen;
+    uses_gen = FALSE;
 }
 
 /* grammar = rule { rule } "." */
@@ -886,7 +880,7 @@ static void conflicts(void)
         conflict(rules[i], i);
 }
 
-static int recognize(Node *n, int *lab1, int *lab2, int bt, StrBuf *buf)
+static int recognize(Node *n, int *gen, int bt, StrBuf *buf)
 {
     int res;
 
@@ -902,16 +896,10 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt, StrBuf *buf)
                 strbuf_printf(buf, "%*s%s", (state.atbeg && state.outind>0)?state.outind:0, "", last_str);
                 state.atbeg = FALSE;
                 break;
-            case O_LAB1:
-                if (*lab1 == -1)
-                    *lab1 = state.labcnt++;
-                strbuf_printf(buf, "%*sL%d", (state.atbeg && state.outind>0)?state.outind:0, "", *lab1);
-                state.atbeg = FALSE;
-                break;
-            case O_LAB2:
-                if (*lab2 == -1)
-                    *lab2 = state.labcnt++;
-                strbuf_printf(buf, "%*sL%d", (state.atbeg && state.outind>0)?state.outind:0, "", *lab2);
+            case O_GEN:
+                if (*gen == -1)
+                    *gen = state.gencnt++;
+                strbuf_printf(buf, "%*s%d", (state.atbeg && state.outind>0)?state.outind:0, "", *gen);
                 state.atbeg = FALSE;
                 break;
             case O_INC:
@@ -988,7 +976,7 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt, StrBuf *buf)
         }
         break;
     case NonTermKind: {
-        int _lab1, _lab2;
+        int _gen;
 
         if (verbose) {
             int i;
@@ -998,12 +986,12 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt, StrBuf *buf)
             printf(">> replacing `%s' (%s:%d)\n", rule_names[n->attr.rule.num], string_file_path, lex_lineno());
         }
         ++state.verind;
-        _lab1 = _lab2 = -1;
+        _gen = -1;
         if (n->attr.rule.buf != NULL) {
             buf = n->attr.rule.buf;
             strbuf_clear(buf);
         }
-        res = recognize(rules[n->attr.rule.num], &_lab1, &_lab2, bt, buf);
+        res = recognize(rules[n->attr.rule.num], &_gen, bt, buf);
         --state.verind;
     }
         break;
@@ -1011,9 +999,9 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt, StrBuf *buf)
         switch (n->attr.op.tok) {
         case TOK_ALTER:      /* | */
             if (first(n->attr.op.child[0]) & (1ULL<<curr_tok))
-                res = recognize(n->attr.op.child[0], lab1, lab2, bt, buf);
+                res = recognize(n->attr.op.child[0], gen, bt, buf);
             else
-                res = recognize(n->attr.op.child[1], lab1, lab2, bt, buf);
+                res = recognize(n->attr.op.child[1], gen, bt, buf);
             break;
         case TOK_ALTER_BT: { /* [[ | ]] */
             State st;
@@ -1021,26 +1009,26 @@ static int recognize(Node *n, int *lab1, int *lab2, int bt, StrBuf *buf)
             res = FALSE;
             save_state(&st);
             if ((first(n->attr.op.child[0]) & (1ULL<<curr_tok))
-            && !(res=recognize(n->attr.op.child[0], lab1, lab2, TRUE, buf)))
+            && !(res=recognize(n->attr.op.child[0], gen, TRUE, buf)))
                 restore_state(&st);
-            if (!res && !(res=recognize(n->attr.op.child[1], lab1, lab2, bt, buf)))
+            if (!res && !(res=recognize(n->attr.op.child[1], gen, bt, buf)))
                 restore_state(&st);
             dispose_state(&st);
         }
             break;
         case TOK_CONCAT:     /*   */
-            if (res = recognize(n->attr.op.child[0], lab1, lab2, bt, buf))
-                res = recognize(n->attr.op.child[1], lab1, lab2, bt, buf);
+            if (res = recognize(n->attr.op.child[0], gen, bt, buf))
+                res = recognize(n->attr.op.child[1], gen, bt, buf);
             break;
         case TOK_REPET:      /* {} */
             res = TRUE;
             while (res && (first(n->attr.op.child[0]) & (1ULL<<curr_tok)))
-                res = recognize(n->attr.op.child[0], lab1, lab2, bt, buf);
+                res = recognize(n->attr.op.child[0], gen, bt, buf);
             break;
         case TOK_OPTION:     /* [] */
             res = TRUE;
             if (first(n->attr.op.child[0]) & (1ULL<<curr_tok))
-                res = recognize(n->attr.op.child[0], lab1, lab2, bt, buf);
+                res = recognize(n->attr.op.child[0], gen, bt, buf);
             break;
         }
         break;
@@ -1107,13 +1095,9 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
                 strcat(fmtbuf, "%s");
                 strcat(argbuf, ", last_tokstr");
                 break;
-            case O_LAB1:
-                strcat(fmtbuf, "L%d");
-                strcat(argbuf, ", getlab(&lab1)");
-                break;
-            case O_LAB2:
-                strcat(fmtbuf, "L%d");
-                strcat(argbuf, ", getlab(&lab2)");
+            case O_GEN:
+                strcat(fmtbuf, "%d");
+                strcat(argbuf, ", gennum(&_gen)");
                 break;
             case O_INC:
                 if (fmtbuf[0] == '\0')
@@ -1207,10 +1191,10 @@ static void write_rule(Node *n, int in_alter, int in_else, int indent)
                 EMIT(indent, "if (");
             write_first_test(first(rules[n->attr.rule.num]));
             fprintf(rec_file, ") {\n");
-            EMITLN(indent+1, "%s();", rule_names[n->attr.rule.num]);
+            EMITLN(indent+1, "rule_%s();", rule_names[n->attr.rule.num]);
             EMIT(indent, "}");
         } else {
-            EMIT(indent, "%s();", rule_names[n->attr.rule.num]);
+            EMIT(indent, "rule_%s();", rule_names[n->attr.rule.num]);
         }
         break;
     case OpKind:
@@ -1301,7 +1285,7 @@ static void generate_recognizer(void)
     "static int curr_tok;\n"
     "static char *prog_name, *string_file;\n"
     "static char last_tokstr[MAX_TOKSTR_LEN];\n"
-    "static int label_counter = 1;\n"
+    "static int gencnt = 1;\n"
     "static int indent = 0;\n"
     "#define get_indent() (indent>0?indent:0)\n"
     "#define LA(x) (curr_tok == (x))\n"
@@ -1311,11 +1295,11 @@ static void generate_recognizer(void)
     "    string_file, lex_lineno(), lex_num2print(curr_tok));\n"
     "    exit(EXIT_FAILURE);\n"
     "}\n"
-    "static int getlab(int *lab)\n"
+    "static int gennum(int *gen)\n"
     "{\n"
-    "    if (*lab == -1)\n"
-    "        *lab = label_counter++;\n"
-    "    return *lab;\n"
+    "    if (*gen == -1)\n"
+    "        *gen = gencnt++;\n"
+    "    return *gen;\n"
     "}\n"
     "static void match(int expected)\n"
     "{\n"
@@ -1329,18 +1313,12 @@ static void generate_recognizer(void)
     );
 
     for (i = 0; i < rule_counter; i++)
-        EMITLN(0, "static void %s(void);", rule_names[i]);
+        EMITLN(0, "static void rule_%s(void);", rule_names[i]);
 
     for (i = 0; i < rule_counter; i++) {
-        EMITLN(0, "void %s(void) {", rule_names[i]);
-        if (label_usage[i] & USES_LAB1) {
-            if (label_usage[i] & USES_LAB2)
-                EMITLN(1, "int lab1 = -1, lab2 = -1;");
-            else
-                EMITLN(1, "int lab1 = -1;");
-        } else if (label_usage[i] & USES_LAB2) {
-            EMITLN(1, "int lab2 = -1;");
-        }
+        EMITLN(0, "void rule_%s(void) {", rule_names[i]);
+        if (gen_usage[i])
+            EMITLN(1, "int _gen = -1;");
         write_rule(rules[i], FALSE, FALSE, 1);
         EMITLN(0, "\n}");
     }
@@ -1357,7 +1335,7 @@ static void generate_recognizer(void)
 
     fprintf(rec_file,
     "    curr_tok = lex_get_token();\n"
-    "    %s();\n"
+    "    rule_%s();\n"
     "    lex_finish();\n"
     "    return 0;\n"
     "}\n",
@@ -1495,9 +1473,9 @@ int main(int argc, char *argv[])
             fclose(rec_file);
     }
     if (string_file_path != NULL) {
-        int lab1, lab2;
+        int gen;
 
-        lab1 = lab2 = -1;
+        gen = -1;
         if (lex_init(string_file_path) == -1)
             DIE("lex_init() failed!");
 
@@ -1505,13 +1483,13 @@ int main(int argc, char *argv[])
         curr_tok = lex_get_token();
         state.atbeg = TRUE;
         state.outputting = TRUE;
-        state.labcnt = 1;
+        state.gencnt = 1;
 
         if (verbose) {
             printf(">> replacing `%s' (%s:%d)\n", rule_names[start_symbol], string_file_path, lex_lineno());
             ++state.verind;
         }
-        recognize(rules[start_symbol], &lab1, &lab2, FALSE, outbuf);
+        recognize(rules[start_symbol], &gen, FALSE, outbuf);
         strbuf_flush(outbuf);
         strbuf_destroy(outbuf);
         for (i = 0; i < nambuf_counter; i++)

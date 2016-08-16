@@ -8,8 +8,9 @@ line = $push #ID ( ":" $pop label
 
 label = #ID {{ *":" }} ":" ;
 
-instr = mnemonic {{ " " }} $push $dout operand "," $eout
-        operand {{ ", " }} $pop operand "," $dout operand $eout ;
+!instr = mnemonic {{ " " }} $push $dout operand "," $eout
+!        operand {{ ", " }} $pop operand "," $dout operand $eout ;
+instr = mnemonic {{ " " }} operand>$op1 "," operand>$op2 {{ $op2", "$op1 }} ;
 
 mnemonic = mne_id>$mne ( "byte"   {{ $mne"b" }}
                        | "word"   {{ $mne"w" }}
