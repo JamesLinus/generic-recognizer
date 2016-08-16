@@ -179,8 +179,8 @@ There are a few things to watch out when using named buffers:
 
 The following example uses `#` to generate unique labels:
 
-    if_stmt = "if" expr "then" {{ "BF " "A"# ; }}
-              stmt "else" {{ "B " "B"# ; "A"#":" ; }}
+    if_stmt = "if" expr "then" {{ "BF A"# ; }}
+              stmt "else" {{ "B B"# ; "A"#":" ; }}
               stmt {{ "B"#":" ; }} ;
 
 ## Backtracking
