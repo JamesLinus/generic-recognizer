@@ -1,0 +1,18 @@
+A1:
+mov dword eax, [ebx+ecx*4+1024]
+A2:
+mov esi, [ebp+edi*2]
+A3:
+mov dword esp, [eax+esi+64]
+A4:
+mov edi, [edx+eax]
+A5:
+mov dword edx, [ecx+32]
+A6:
+mov eax, [ebx*4+512]
+A7:
+mov dword ecx, [ebx*8]
+A8:
+mov esp, [ebp]
+A9:
+mov dword eax, [4096]
