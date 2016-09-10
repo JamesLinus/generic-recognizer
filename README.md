@@ -31,7 +31,7 @@ Terminals symbols (tokens) can be specified in two ways:
  - With a `#` followed by the name of a token (see `tokens.def`).
  - Enclosed in quotes. If what is between the quotes is an identifier, then
    it is treated as a keyword token. Otherwise, what is between the quotes
-   must be something that can be lexed by `lex_get_token()` (see `lex.c`).
+   must be something that can be lexed by `lex_get_token()` (see [lex.c](lex.c)).
 
 There is no need for an explicit symbol to denote the empty string (epsilon, ε).
 
